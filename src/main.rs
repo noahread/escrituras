@@ -353,8 +353,38 @@ async fn interactive_query_session(
                     let selected_scripture = &referenced_scriptures[scripture_selection];
                     display_scripture_with_context(db, selected_scripture).await?;
                     
-                    // Continue loop for more interaction
-                    continue;
+                    // After reading, show simplified options and continue without re-querying
+                    println!("\n{}", "📖 Scripture reading complete".dimmed());
+                    
+                    // Return to the conversation options without running LLM again
+                    let options = vec![
+                        "Ask a follow-up question".to_string(),
+                        "Read another referenced scripture".to_string(),
+                        "Exit".to_string(),
+                    ];
+            
+                    let selection = Select::with_theme(&ColorfulTheme::default())
+                        .with_prompt("What would you like to do next?")
+                        .items(&options)
+                        .default(0)
+                        .interact()?;
+                        
+                    match selection {
+                        0 => {
+                            // Follow-up question
+                            let follow_up: String = Input::with_theme(&ColorfulTheme::default())
+                                .with_prompt("Follow-up question")
+                                .interact_text()?;
+                            current_question = follow_up;
+                            current_context = None;
+                            break; // Exit this inner logic to proceed with new question
+                        },
+                        1 => {
+                            // Loop back to read another scripture
+                            // Stay in the scripture selection
+                        },
+                        _ => return Ok(()), // Exit
+                    }
                 },
                 2 => break, // Exit
                 _ => break,
@@ -454,26 +484,132 @@ fn build_conversation_prompt(question: &str, verses: Option<&[Scripture]>, conve
 }
 
 fn extract_scripture_references(response: &str, db: &ScriptureDb) -> Vec<Scripture> {
+    use regex::Regex;
+    
     let mut references = Vec::new();
     
-    // Simple approach: look for common book names and chapter:verse patterns
-    let book_names = ["Genesis", "Exodus", "John", "Matthew", "Romans", "Corinthians", 
-                     "Nephi", "Alma", "Moroni", "Mormon", "Ether", "Moses", "Abraham"];
+    // Comprehensive scripture reference patterns
+    let patterns = vec![
+        // Pattern: "1 Nephi 11:16", "2 Corinthians 13:14", "3 John 1:4"
+        r"(?P<num>[123]\s+)?(?P<book>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(?P<chapter>\d+):(?P<verse>\d+)(?:-(?P<endverse>\d+))?",
+        // Pattern: "Genesis 1:1", "John 3:16", "Romans 8:28" 
+        r"(?P<book>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(?P<chapter>\d+):(?P<verse>\d+)(?:-(?P<endverse>\d+))?",
+        // Pattern: "Alma 7:14-15" (range), "Matthew 5:3-12"
+        r"(?P<book>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(?P<chapter>\d+):(?P<verse>\d+)-(?P<endverse>\d+)",
+    ];
     
-    for book_name in &book_names {
-        if response.contains(book_name) {
-            // Find scriptures from this book
-            let matching_scriptures = db.search(book_name, 5);
-            for scripture in matching_scriptures.iter().take(2) { // Limit per book
-                if !references.iter().any(|r: &Scripture| r.verse_title == scripture.verse_title) {
-                    references.push((*scripture).clone());
+    for pattern_str in patterns {
+        if let Ok(re) = Regex::new(pattern_str) {
+            for caps in re.captures_iter(response) {
+                let num_prefix = caps.name("num").map(|m| m.as_str().trim()).unwrap_or("");
+                let book_name = caps.name("book").map(|m| m.as_str().trim()).unwrap_or("");
+                let chapter_str = caps.name("chapter").map(|m| m.as_str()).unwrap_or("");
+                let verse_str = caps.name("verse").map(|m| m.as_str()).unwrap_or("");
+                
+                if let (Ok(chapter), Ok(verse)) = (chapter_str.parse::<i32>(), verse_str.parse::<i32>()) {
+                    // Build full book name with number prefix if present
+                    let full_book_name = if !num_prefix.is_empty() {
+                        format!("{}{}", num_prefix, book_name)
+                    } else {
+                        book_name.to_string()
+                    };
+                    
+                    // Try to find exact match first
+                    if let Some(scripture) = find_exact_scripture(db, &full_book_name, chapter, verse) {
+                        if !references.iter().any(|r: &Scripture| r.verse_title == scripture.verse_title) {
+                            references.push(scripture);
+                        }
+                    }
+                    
+                    // Handle verse ranges (e.g., "7:14-15")
+                    if let Some(end_verse_match) = caps.name("endverse") {
+                        if let Ok(end_verse) = end_verse_match.as_str().parse::<i32>() {
+                            for v in (verse + 1)..=end_verse {
+                                if let Some(scripture) = find_exact_scripture(db, &full_book_name, chapter, v) {
+                                    if !references.iter().any(|r: &Scripture| r.verse_title == scripture.verse_title) {
+                                        references.push(scripture);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
     
-    references.truncate(5); // Max 5 references to keep it manageable
     references
+}
+
+fn find_exact_scripture(db: &ScriptureDb, book_name: &str, chapter: i32, verse: i32) -> Option<Scripture> {
+    // Get all scriptures for this book and find exact match
+    let book_scriptures = db.search(book_name, 1000);
+    
+    for scripture in book_scriptures {
+        // Try exact book title match
+        if (scripture.book_title.eq_ignore_ascii_case(book_name) || 
+            scripture.book_short_title.eq_ignore_ascii_case(book_name)) &&
+           scripture.chapter_number == chapter && 
+           scripture.verse_number == verse {
+            return Some(scripture.clone());
+        }
+        
+        // Try fuzzy matching for common variations
+        if book_matches_fuzzy(&scripture.book_title, book_name) && 
+           scripture.chapter_number == chapter && 
+           scripture.verse_number == verse {
+            return Some(scripture.clone());
+        }
+    }
+    
+    None
+}
+
+fn book_matches_fuzzy(db_book: &str, search_book: &str) -> bool {
+    let db_lower = db_book.to_lowercase();
+    let search_lower = search_book.to_lowercase();
+    
+    // Handle common variations
+    let variations = [
+        ("1 nephi", "nephi"),
+        ("2 nephi", "nephi"),
+        ("3 nephi", "nephi"),
+        ("4 nephi", "nephi"),
+        ("1 corinthians", "corinthians"),
+        ("2 corinthians", "corinthians"),
+        ("1 thessalonians", "thessalonians"),
+        ("2 thessalonians", "thessalonians"),
+        ("1 timothy", "timothy"),
+        ("2 timothy", "timothy"),
+        ("1 peter", "peter"),
+        ("2 peter", "peter"),
+        ("1 john", "john"),
+        ("2 john", "john"),
+        ("3 john", "john"),
+        ("1 kings", "kings"),
+        ("2 kings", "kings"),
+        ("1 samuel", "samuel"),
+        ("2 samuel", "samuel"),
+        ("1 chronicles", "chronicles"),
+        ("2 chronicles", "chronicles"),
+        ("doctrine and covenants", "covenants"),
+    ];
+    
+    // Exact match
+    if db_lower == search_lower {
+        return true;
+    }
+    
+    // Check variations
+    for (full_name, short_name) in &variations {
+        if (db_lower == *full_name && search_lower.contains(short_name)) ||
+           (search_lower == *full_name && db_lower.contains(short_name)) {
+            return true;
+        }
+    }
+    
+    // Contains match as fallback
+    db_lower.contains(&search_lower) || search_lower.contains(&db_lower)
 }
 
 async fn display_scripture_with_context(db: &ScriptureDb, scripture: &Scripture) -> Result<()> {
