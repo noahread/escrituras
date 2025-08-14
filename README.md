@@ -95,8 +95,29 @@ The CLI integrates with [Ollama](https://ollama.ai) for AI-powered scripture stu
 | `list` | Show all volumes, books, and chapters | `scripture list` |
 | `search <query>` | Search scripture text | `scripture search "love"` |
 | `browse` | Interactive scripture browser | `scripture browse` |
-| `query <question>` | Ask Ollama with optional context | `scripture query "What is charity?" --context "charity"` |
+| `query <question>` | Interactive AI conversation with follow-ups | `scripture query "What is charity?" --context "charity"` |
 | `models` | List available Ollama models | `scripture models` |
+
+## Interactive Features
+
+### **AI Conversations (`query`)**
+- **Follow-up questions**: Ask additional questions that build on previous answers
+- **Scripture references**: Automatically detects when AI mentions scriptures
+- **Read references**: Select and read any scripture mentioned in the response  
+- **Conversation history**: Maintains context across multiple questions
+- **Context switching**: Add new scripture context mid-conversation
+
+### **Example Workflow**
+```bash
+# Start with a question
+./scripture.sh query "What is faith?"
+
+# AI responds, then you can:
+# → Ask follow-up: "How do I increase my faith?"
+# → Read references: Select any scripture mentioned
+# → Add context: Search for "faith" to add relevant verses
+# → Continue conversation with full context
+```
 
 ## Tips
 
@@ -104,3 +125,5 @@ The CLI integrates with [Ollama](https://ollama.ai) for AI-powered scripture stu
 - The `--context` flag finds relevant verses to include with your question
 - Interactive browsing (`browse`) is great for reading complete chapters
 - Search is case-insensitive and matches verse text, titles, and book names
+- In `query` mode, you can ask unlimited follow-up questions
+- Referenced scriptures show surrounding verses for context

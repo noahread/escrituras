@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use colored::*;
-use dialoguer::{Select, theme::ColorfulTheme};
+use dialoguer::{Select, Input, theme::ColorfulTheme};
 use anyhow::Result;
 
 mod scripture;
@@ -8,6 +8,13 @@ mod ollama;
 
 use scripture::{ScriptureDb, Scripture};
 use ollama::OllamaClient;
+
+#[derive(Clone)]
+struct ConversationMessage {
+    question: String,
+    response: String,
+    context: Vec<Scripture>,
+}
 
 #[derive(Parser)]
 #[command(name = "scripture")]
@@ -58,7 +65,7 @@ async fn main() -> Result<()> {
         Commands::Browse => browse_interactive(&db).await?,
         Commands::Search { query, limit } => search_scriptures(&db, &query, limit).await?,
         Commands::Query { question, context, model } => {
-            query_ollama(&db, &question, context.as_deref(), &model).await?
+            interactive_query_session(&db, &question, context.as_deref(), &model).await?
         },
         Commands::List => list_books(&db).await?,
         Commands::Models => list_ollama_models().await?,
@@ -236,6 +243,162 @@ async fn query_ollama(
     Ok(())
 }
 
+async fn interactive_query_session(
+    db: &ScriptureDb,
+    initial_question: &str, 
+    initial_context: Option<&str>, 
+    model: &str
+) -> Result<()> {
+    let mut conversation: Vec<ConversationMessage> = Vec::new();
+    let mut current_question = initial_question.to_string();
+    let mut current_context = initial_context.map(|s| s.to_string());
+    
+    loop {
+        // Execute the current query
+        let context_verses = if let Some(search_term) = &current_context {
+            println!("🔍 Finding scripture context for: {}", search_term.cyan());
+            let verses = db.search(search_term, 5);
+            if !verses.is_empty() {
+                println!("📖 Using {} verses as context\n", verses.len().to_string().bold());
+                Some(verses.iter().map(|v| (*v).clone()).collect::<Vec<Scripture>>())
+            } else {
+                println!("⚠️  No verses found for context search\n");
+                None
+            }
+        } else {
+            None
+        };
+        
+        // Build prompt with conversation history
+        let prompt = build_conversation_prompt(&current_question, context_verses.as_deref(), &conversation);
+        
+        println!("🤖 Querying {} with your question...\n", model.bold().magenta());
+        
+        let ollama = OllamaClient::new("http://localhost:11434");
+        let response = match ollama.query(model, &prompt).await {
+            Ok(response) => {
+                println!("{}", "Response:".bold().green());
+                println!("{}", response);
+                response
+            },
+            Err(e) => {
+                println!("{}: {}", "Error querying Ollama".red(), e);
+                println!("Make sure Ollama is running: {}", "ollama serve".bold());
+                return Ok(());
+            }
+        };
+        
+        // Store in conversation history
+        conversation.push(ConversationMessage {
+            question: current_question.clone(),
+            response: response.clone(),
+            context: context_verses.clone().unwrap_or_default(),
+        });
+        
+        // Show scripture references if they were used
+        if let Some(verses) = &context_verses {
+            println!("\n{}", "Scripture Context Used:".bold().blue());
+            for verse in verses {
+                println!("• {} - {}", verse.verse_title.yellow(), verse.book_title.dimmed());
+            }
+        }
+        
+        // Extract and offer referenced scriptures
+        let referenced_scriptures = extract_scripture_references(&response, db);
+        if !referenced_scriptures.is_empty() {
+            println!("\n{}", "📖 Scripture References Found:".bold().blue());
+            for (i, scripture) in referenced_scriptures.iter().enumerate() {
+                println!("{}. {} - {}", 
+                    (i + 1).to_string().bold().blue(),
+                    scripture.verse_title.yellow(), 
+                    scripture.book_title.dimmed()
+                );
+            }
+            
+            // Offer to read any referenced scripture
+            let options = vec![
+                "Ask a follow-up question".to_string(),
+                "Read a referenced scripture".to_string(),
+                "Exit".to_string(),
+            ];
+            
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("What would you like to do next?")
+                .items(&options)
+                .default(0)
+                .interact()?;
+                
+            match selection {
+                0 => {
+                    // Follow-up question
+                    let follow_up: String = Input::with_theme(&ColorfulTheme::default())
+                        .with_prompt("Follow-up question")
+                        .interact_text()?;
+                    current_question = follow_up;
+                    current_context = None; // Let them optionally specify new context
+                },
+                1 => {
+                    // Read referenced scripture
+                    let scripture_options: Vec<String> = referenced_scriptures
+                        .iter()
+                        .map(|s| s.verse_title.clone())
+                        .collect();
+                    
+                    let scripture_selection = Select::with_theme(&ColorfulTheme::default())
+                        .with_prompt("Select a scripture to read")
+                        .items(&scripture_options)
+                        .default(0)
+                        .interact()?;
+                    
+                    let selected_scripture = &referenced_scriptures[scripture_selection];
+                    display_scripture_with_context(db, selected_scripture).await?;
+                    
+                    // Continue loop for more interaction
+                    continue;
+                },
+                2 => break, // Exit
+                _ => break,
+            }
+        } else {
+            // No references found, just offer follow-up or exit
+            let options = vec![
+                "Ask a follow-up question".to_string(),
+                "Search for context on this topic".to_string(),
+                "Exit".to_string(),
+            ];
+            
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("What would you like to do next?")
+                .items(&options)
+                .default(0)
+                .interact()?;
+                
+            match selection {
+                0 => {
+                    // Follow-up question
+                    let follow_up: String = Input::with_theme(&ColorfulTheme::default())
+                        .with_prompt("Follow-up question")
+                        .interact_text()?;
+                    current_question = follow_up;
+                },
+                1 => {
+                    // Search for context
+                    let search_term: String = Input::with_theme(&ColorfulTheme::default())
+                        .with_prompt("Search for scripture context")
+                        .interact_text()?;
+                    current_context = Some(search_term);
+                    continue; // Use same question with new context
+                },
+                2 => break, // Exit
+                _ => break,
+            }
+        }
+    }
+    
+    println!("\n{}", "Thanks for studying the scriptures! 📖✨".bold().blue());
+    Ok(())
+}
+
 fn build_prompt_with_context(question: &str, verses: Option<&[Scripture]>) -> String {
     let mut prompt = String::new();
     
@@ -256,6 +419,100 @@ fn build_prompt_with_context(question: &str, verses: Option<&[Scripture]>) -> St
     }
     
     prompt
+}
+
+fn build_conversation_prompt(question: &str, verses: Option<&[Scripture]>, conversation: &[ConversationMessage]) -> String {
+    let mut prompt = String::new();
+    
+    // Add conversation history
+    if !conversation.is_empty() {
+        prompt.push_str("Previous conversation context:\n");
+        for msg in conversation.iter().take(3) { // Keep last 3 exchanges
+            prompt.push_str(&format!("Q: {}\nA: {}\n\n", msg.question, msg.response));
+        }
+        prompt.push_str("---\n\n");
+    }
+    
+    // Add current context and question
+    if let Some(context_verses) = verses {
+        prompt.push_str("Please answer the following question using the provided scripture context:\n\n");
+        prompt.push_str("Scripture Context:\n");
+        for verse in context_verses {
+            prompt.push_str(&format!("{}: {}\n", verse.verse_title, verse.scripture_text));
+        }
+        prompt.push_str("\n");
+    }
+    
+    prompt.push_str("Question: ");
+    prompt.push_str(question);
+    
+    if verses.is_some() {
+        prompt.push_str("\n\nPlease reference the scriptures in your answer when relevant.");
+    }
+    
+    prompt
+}
+
+fn extract_scripture_references(response: &str, db: &ScriptureDb) -> Vec<Scripture> {
+    let mut references = Vec::new();
+    
+    // Simple approach: look for common book names and chapter:verse patterns
+    let book_names = ["Genesis", "Exodus", "John", "Matthew", "Romans", "Corinthians", 
+                     "Nephi", "Alma", "Moroni", "Mormon", "Ether", "Moses", "Abraham"];
+    
+    for book_name in &book_names {
+        if response.contains(book_name) {
+            // Find scriptures from this book
+            let matching_scriptures = db.search(book_name, 5);
+            for scripture in matching_scriptures.iter().take(2) { // Limit per book
+                if !references.iter().any(|r: &Scripture| r.verse_title == scripture.verse_title) {
+                    references.push((*scripture).clone());
+                }
+            }
+        }
+    }
+    
+    references.truncate(5); // Max 5 references to keep it manageable
+    references
+}
+
+async fn display_scripture_with_context(db: &ScriptureDb, scripture: &Scripture) -> Result<()> {
+    println!("\n{}", format!("📜 {} - {}", scripture.verse_title, scripture.book_title).bold().green());
+    println!("{}", "=".repeat(60).dimmed());
+    
+    // Show the selected verse
+    println!("\n{}  {}", 
+             format!("{}:{}", scripture.chapter_number, scripture.verse_number).bold().yellow(),
+             scripture.scripture_text.bold()
+    );
+    
+    // Show surrounding verses for context
+    let surrounding_verses = db.get_verses_for_chapter(&scripture.book_title, scripture.chapter_number);
+    let current_index = surrounding_verses.iter().position(|v| v.verse_number == scripture.verse_number);
+    
+    if let Some(index) = current_index {
+        println!("\n{}", "Context (surrounding verses):".dimmed());
+        
+        let start = if index >= 2 { index - 2 } else { 0 };
+        let end = std::cmp::min(surrounding_verses.len(), index + 3);
+        
+        for i in start..end {
+            let verse = &surrounding_verses[i];
+            if verse.verse_number == scripture.verse_number {
+                continue; // Skip the main verse we already showed
+            }
+            
+            println!("  {}:{} {}",
+                     verse.chapter_number.to_string().dimmed(),
+                     verse.verse_number.to_string().dimmed(),
+                     verse.scripture_text.dimmed()
+            );
+        }
+    }
+    
+    println!("\n{}", "=".repeat(60).dimmed());
+    
+    Ok(())
 }
 
 async fn list_books(db: &ScriptureDb) -> Result<()> {
