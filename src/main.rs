@@ -37,11 +37,13 @@ enum Commands {
         #[arg(short, long)]
         context: Option<String>,
         /// Ollama model to use
-        #[arg(short, long, default_value = "llama2")]
+        #[arg(short, long, default_value = "llama3.2:latest")]
         model: String,
     },
     /// List available volumes and books
     List,
+    /// List available Ollama models
+    Models,
 }
 
 #[tokio::main]
@@ -59,6 +61,7 @@ async fn main() -> Result<()> {
             query_ollama(&db, &question, context.as_deref(), &model).await?
         },
         Commands::List => list_books(&db).await?,
+        Commands::Models => list_ollama_models().await?,
     }
     
     Ok(())
@@ -268,6 +271,32 @@ async fn list_books(db: &ScriptureDb) -> Result<()> {
         for book in books {
             let chapter_count = db.get_chapters_for_book(&book).len();
             println!("  • {} ({} chapters)", book, chapter_count.to_string().dimmed());
+        }
+    }
+    
+    Ok(())
+}
+
+async fn list_ollama_models() -> Result<()> {
+    let ollama = OllamaClient::new("http://localhost:11434");
+    
+    println!("\n{}", "🤖 Available Ollama Models".bold().blue());
+    println!("{}", "=".repeat(30).dimmed());
+    
+    match ollama.list_models().await {
+        Ok(models) => {
+            if models.is_empty() {
+                println!("{}", "No models found. Pull a model with: ollama pull llama3.2".yellow());
+            } else {
+                for model in models {
+                    println!("  • {}", model.green());
+                }
+            }
+        },
+        Err(e) => {
+            println!("{}: {}", "Error connecting to Ollama".red(), e);
+            println!("Make sure Ollama is running: {}", "ollama serve".bold());
+            println!("Then pull a model: {}", "ollama pull llama3.2".bold());
         }
     }
     

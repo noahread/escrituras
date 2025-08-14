@@ -15,6 +15,16 @@ struct OllamaResponse {
     done: bool,
 }
 
+#[derive(Deserialize)]
+struct OllamaModel {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct OllamaModelsResponse {
+    models: Vec<OllamaModel>,
+}
+
 pub struct OllamaClient {
     client: Client,
     base_url: String,
@@ -64,7 +74,13 @@ impl OllamaClient {
             return Err(anyhow!("Failed to list models: {}", response.status()));
         }
         
-        // This is a simplified version - Ollama's actual response format may differ
-        Ok(vec!["llama2".to_string(), "mistral".to_string()]) // Placeholder
+        let models_response: OllamaModelsResponse = response.json().await?;
+        let model_names: Vec<String> = models_response
+            .models
+            .into_iter()
+            .map(|model| model.name)
+            .collect();
+            
+        Ok(model_names)
     }
 }

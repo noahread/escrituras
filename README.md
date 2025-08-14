@@ -46,11 +46,14 @@ This opens an interactive menu to navigate: Volume → Book → Chapter
 # First, make sure Ollama is running
 ollama serve
 
-# Query with scripture context
-./target/debug/scripture query "What does faith mean?" --context "faith" --model llama2
+# Query with scripture context (uses llama3.2:latest by default)
+./target/debug/scripture query "What does faith mean?" --context "faith"
+
+# Query with specific model
+./target/debug/scripture query "What does faith mean?" --context "faith" --model "DeepSeek-r1:latest"
 
 # Query without context
-./target/debug/scripture query "Explain the creation story" --model llama2
+./target/debug/scripture query "Explain the creation story"
 ```
 
 ## Data Source
@@ -78,8 +81,11 @@ The CLI integrates with [Ollama](https://ollama.ai) for AI-powered scripture stu
 # Search for verses about faith
 ./target/debug/scripture search "faith" --limit 3
 
+# List available Ollama models
+./target/debug/scripture models
+
 # Ask AI about faith with scripture context
-./target/debug/scripture query "How can I increase my faith?" --context "faith" --model llama2
+./target/debug/scripture query "How can I increase my faith?" --context "faith"
 ```
 
 ## Available Commands
@@ -90,6 +96,7 @@ The CLI integrates with [Ollama](https://ollama.ai) for AI-powered scripture stu
 | `search <query>` | Search scripture text | `scripture search "love"` |
 | `browse` | Interactive scripture browser | `scripture browse` |
 | `query <question>` | Ask Ollama with optional context | `scripture query "What is charity?" --context "charity"` |
+| `models` | List available Ollama models | `scripture models` |
 
 ## Tips
 
