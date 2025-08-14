@@ -47,42 +47,67 @@ impl ScriptureDb {
     }
     
     fn build_indexes(&mut self) {
-        let mut volumes_set = HashSet::new();
-        let mut books_by_vol: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut chapters_by_bk: HashMap<String, HashSet<i32>> = HashMap::new();
+        let mut volumes_order = Vec::new();
+        let mut books_by_vol: HashMap<String, Vec<String>> = HashMap::new();
+        let mut chapters_by_bk: HashMap<String, Vec<i32>> = HashMap::new();
         
+        // Track seen items to maintain order while avoiding duplicates
+        let mut seen_volumes = HashSet::new();
+        let mut seen_books: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut seen_chapters: HashMap<String, HashSet<i32>> = HashMap::new();
+        
+        // Process in original order to preserve canonical sequence
         for scripture in &self.scriptures {
-            // Collect volumes
-            volumes_set.insert(scripture.volume_title.clone());
+            // Collect volumes in order
+            if !seen_volumes.contains(&scripture.volume_title) {
+                volumes_order.push(scripture.volume_title.clone());
+                seen_volumes.insert(scripture.volume_title.clone());
+            }
             
-            // Collect books by volume
-            books_by_vol
+            // Collect books by volume in order
+            if !seen_books
                 .entry(scripture.volume_title.clone())
                 .or_insert_with(HashSet::new)
-                .insert(scripture.book_title.clone());
+                .contains(&scripture.book_title) 
+            {
+                books_by_vol
+                    .entry(scripture.volume_title.clone())
+                    .or_insert_with(Vec::new)
+                    .push(scripture.book_title.clone());
+                    
+                seen_books
+                    .get_mut(&scripture.volume_title)
+                    .unwrap()
+                    .insert(scripture.book_title.clone());
+            }
             
-            // Collect chapters by book
-            chapters_by_bk
+            // Collect chapters by book in order
+            if !seen_chapters
                 .entry(scripture.book_title.clone())
                 .or_insert_with(HashSet::new)
-                .insert(scripture.chapter_number);
+                .contains(&scripture.chapter_number)
+            {
+                chapters_by_bk
+                    .entry(scripture.book_title.clone())
+                    .or_insert_with(Vec::new)
+                    .push(scripture.chapter_number);
+                    
+                seen_chapters
+                    .get_mut(&scripture.book_title)
+                    .unwrap()
+                    .insert(scripture.chapter_number);
+            }
         }
         
-        // Convert to sorted vectors
-        self.volumes = volumes_set.into_iter().collect();
-        self.volumes.sort();
+        // Store in order (no sorting needed since we preserved original order)
+        self.volumes = volumes_order;
+        self.books_by_volume = books_by_vol;
         
-        for (volume, books) in books_by_vol {
-            let mut book_list: Vec<String> = books.into_iter().collect();
-            book_list.sort();
-            self.books_by_volume.insert(volume, book_list);
+        // Sort chapters numerically for each book
+        for chapters in chapters_by_bk.values_mut() {
+            chapters.sort();
         }
-        
-        for (book, chapters) in chapters_by_bk {
-            let mut chapter_list: Vec<i32> = chapters.into_iter().collect();
-            chapter_list.sort();
-            self.chapters_by_book.insert(book, chapter_list);
-        }
+        self.chapters_by_book = chapters_by_bk;
     }
     
     pub fn get_volumes(&self) -> &[String] {
