@@ -8,7 +8,7 @@ use ratatui::{
         ScrollbarState, Wrap,
     },
 };
-use crate::app::{App, FocusPane, InputMode, NavLevel, Screen};
+use crate::app::{App, FocusPane, InputMode, NavLevel, Screen, SearchFocus};
 use crate::provider::Provider;
 
 /// Parse a line of text and convert **bold** and *italic* markdown to styled spans
@@ -191,16 +191,45 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
             ]);
             hints
         },
-        (Screen::Search, InputMode::Normal) => vec![
-            Span::styled(" j/k ", key_style),
-            Span::styled(" nav ", label_style),
-            Span::styled(" Enter ", key_style),
-            Span::styled(" view ", label_style),
-            Span::styled(" i ", key_style),
-            Span::styled(" edit ", label_style),
-            Span::styled(" Esc ", key_style),
-            Span::styled(" browse ", label_style),
-        ],
+        (Screen::Search, InputMode::Normal) => {
+            let mut hints = vec![
+                Span::styled(" j/k ", key_style),
+                Span::styled(" nav ", label_style),
+            ];
+
+            if app.search_focus == SearchFocus::Results {
+                hints.extend(vec![
+                    Span::styled(" Enter ", key_style),
+                    Span::styled(" view ", label_style),
+                ]);
+            } else if app.show_context_panel {
+                // Preview focused, showing saved scriptures
+                hints.extend(vec![
+                    Span::styled(" d ", key_style),
+                    Span::styled(" remove ", label_style),
+                ]);
+            } else {
+                // Preview focused, showing preview
+                hints.extend(vec![
+                    Span::styled(" x ", key_style),
+                    Span::styled(" save ", label_style),
+                    Span::styled(" c ", key_style),
+                    Span::styled(" copy ", label_style),
+                ]);
+            }
+
+            hints.extend(vec![
+                Span::styled(" Tab ", key_style),
+                Span::styled(" focus ", label_style),
+                Span::styled(" X ", key_style),
+                Span::styled(if app.show_context_panel { " scripture " } else { " saved " }, label_style),
+                Span::styled(" i ", key_style),
+                Span::styled(" edit ", label_style),
+                Span::styled(" Esc ", key_style),
+                Span::styled(" browse ", label_style),
+            ]);
+            hints
+        },
         (Screen::Search, InputMode::Editing) => vec![
             Span::styled(" Enter ", key_style),
             Span::styled(" search ", label_style),
@@ -475,17 +504,20 @@ fn render_search_screen(app: &mut App, frame: &mut Frame, area: Rect) {
         ));
     }
 
-    // Results: list on left, preview on right
+    // Results: list on left, preview/saved on right
     let [list_area, preview_area] = Layout::horizontal([
         Constraint::Percentage(40),
         Constraint::Percentage(60),
     ])
     .areas(results_area);
 
-    // Results list
+    // Results list - highlight when focused
+    let results_focused = app.search_focus == SearchFocus::Results;
+    let results_border_color = if results_focused { Color::Cyan } else { Color::DarkGray };
+
     let results_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(results_border_color))
         .title(format!(" Results ({}) ", app.search_results.len()));
 
     let items: Vec<ListItem> = app
@@ -506,34 +538,42 @@ fn render_search_screen(app: &mut App, frame: &mut Frame, area: Rect) {
 
     frame.render_stateful_widget(list, list_area, &mut app.search_state);
 
-    // Preview
-    let preview_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(" Preview ");
+    // Right panel: Preview or Saved Scriptures
+    if app.show_context_panel {
+        render_context_panel(app, frame, preview_area);
+    } else {
+        // Preview panel - highlight when focused
+        let preview_focused = app.search_focus == SearchFocus::Preview;
+        let preview_border_color = if preview_focused { Color::Cyan } else { Color::DarkGray };
 
-    let preview_text = if let Some(i) = app.search_state.selected() {
-        if let Some(scripture) = app.search_results.get(i) {
-            Text::from(vec![
-                Line::from(Span::styled(
-                    &scripture.verse_title,
-                    Style::default().fg(Color::Yellow).bold(),
-                )),
-                Line::default(),
-                Line::from(&scripture.scripture_text[..]),
-            ])
+        let preview_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(preview_border_color))
+            .title(" Preview ");
+
+        let preview_text = if let Some(i) = app.search_state.selected() {
+            if let Some(scripture) = app.search_results.get(i) {
+                Text::from(vec![
+                    Line::from(Span::styled(
+                        &scripture.verse_title,
+                        Style::default().fg(Color::Yellow).bold(),
+                    )),
+                    Line::default(),
+                    Line::from(&scripture.scripture_text[..]),
+                ])
+            } else {
+                Text::from("Select a result to preview")
+            }
         } else {
             Text::from("Select a result to preview")
-        }
-    } else {
-        Text::from("Select a result to preview")
-    };
+        };
 
-    let preview = Paragraph::new(preview_text)
-        .block(preview_block)
-        .wrap(Wrap { trim: true });
+        let preview = Paragraph::new(preview_text)
+            .block(preview_block)
+            .wrap(Wrap { trim: true });
 
-    frame.render_widget(preview, preview_area);
+        frame.render_widget(preview, preview_area);
+    }
 }
 
 fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {

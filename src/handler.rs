@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use crate::app::{App, ChatMessage, ChatRole, FocusPane, InputMode, Screen};
+use crate::app::{App, ChatMessage, ChatRole, FocusPane, InputMode, Screen, SearchFocus};
 use crate::tui::AppEvent;
 use crate::provider::Provider;
 use crate::claude::ClaudeClient;
@@ -193,11 +193,82 @@ fn handle_search_normal(app: &mut App, key: KeyEvent) {
             app.screen = Screen::Browse;
             app.search_input.clear();
             app.search_results.clear();
+            app.search_focus = SearchFocus::Results;
         }
 
-        // Navigation in results
-        KeyCode::Char('j') | KeyCode::Down => app.search_nav_down(),
-        KeyCode::Char('k') | KeyCode::Up => app.search_nav_up(),
+        // Tab cycles focus: Results -> Preview -> Results
+        KeyCode::Tab => {
+            app.search_focus = match app.search_focus {
+                SearchFocus::Results => {
+                    // When entering saved scriptures panel, select first item
+                    if app.show_context_panel && app.context_state.selected().is_none()
+                        && !app.session_context.is_empty()
+                    {
+                        app.context_state.select(Some(0));
+                    }
+                    SearchFocus::Preview
+                }
+                SearchFocus::Preview => SearchFocus::Results,
+            };
+        }
+
+        // Navigation - depends on focus and panel
+        KeyCode::Char('j') | KeyCode::Down => {
+            if app.search_focus == SearchFocus::Preview && app.show_context_panel {
+                app.context_nav_down();
+            } else {
+                app.search_nav_down();
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.search_focus == SearchFocus::Preview && app.show_context_panel {
+                app.context_nav_up();
+            } else {
+                app.search_nav_up();
+            }
+        }
+
+        // Toggle saved scriptures panel
+        KeyCode::Char('X') => {
+            app.show_context_panel = !app.show_context_panel;
+            if app.show_context_panel && app.context_state.selected().is_none()
+                && !app.session_context.is_empty()
+            {
+                app.context_state.select(Some(0));
+            }
+        }
+
+        // Save scripture (when Preview focused, not showing saved panel)
+        KeyCode::Char('x') => {
+            if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
+                if let Some(i) = app.search_state.selected() {
+                    if let Some(scripture) = app.search_results.get(i).cloned() {
+                        if !app.session_context.iter().any(|v| v.verse_title == scripture.verse_title) {
+                            app.session_context.push(scripture);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove from saved (when Saved panel focused)
+        KeyCode::Char('d') => {
+            if app.search_focus == SearchFocus::Preview && app.show_context_panel {
+                app.remove_selected_context();
+            }
+        }
+
+        // Copy scripture (when Preview focused)
+        KeyCode::Char('c') => {
+            if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
+                if let Some(i) = app.search_state.selected() {
+                    if let Some(scripture) = app.search_results.get(i) {
+                        let text = format!("{}\n{}", scripture.verse_title, scripture.scripture_text);
+                        copy_to_clipboard(&text);
+                    }
+                }
+            }
+        }
 
         // Edit search
         KeyCode::Char('i') | KeyCode::Char('/') => {
@@ -206,12 +277,13 @@ fn handle_search_normal(app: &mut App, key: KeyEvent) {
 
         // View selected result (go to that chapter)
         KeyCode::Enter => {
-            if let Some(i) = app.search_state.selected() {
-                if let Some(scripture) = app.search_results.get(i).cloned() {
-                    // Use the shared jump_to_scripture method
-                    app.jump_to_scripture(&scripture);
-                    app.screen = Screen::Browse;
-                    app.focus = FocusPane::Content;
+            if app.search_focus == SearchFocus::Results {
+                if let Some(i) = app.search_state.selected() {
+                    if let Some(scripture) = app.search_results.get(i).cloned() {
+                        app.jump_to_scripture(&scripture);
+                        app.screen = Screen::Browse;
+                        app.focus = FocusPane::Content;
+                    }
                 }
             }
         }

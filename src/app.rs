@@ -46,6 +46,13 @@ pub enum ChatRole {
     Assistant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchFocus {
+    #[default]
+    Results,
+    Preview,
+}
+
 /// Saved navigation state for returning to previous location
 #[derive(Debug, Clone)]
 pub struct NavigationState {
@@ -77,6 +84,7 @@ pub struct App {
     pub search_input: String,
     pub search_results: Vec<Scripture>,
     pub search_state: ListState,
+    pub search_focus: SearchFocus,
 
     // AI Query state (chat history)
     pub query_input: String,
@@ -196,6 +204,7 @@ impl App {
             search_input: String::new(),
             search_results: Vec::new(),
             search_state: ListState::default(),
+            search_focus: SearchFocus::default(),
 
             query_input: String::new(),
             query_cursor: 0,
