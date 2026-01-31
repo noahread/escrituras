@@ -8,6 +8,14 @@ use crate::claude::ClaudeClient;
 use crate::openai::OpenAIClient;
 use crate::config::Config;
 
+/// Convert a character index to a byte index for UTF-8 safe string operations
+fn char_to_byte_index(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
+}
+
 pub async fn handle_event(app: &mut App, event: AppEvent) -> Result<()> {
     match event {
         AppEvent::Key(key) => handle_key(app, key).await?,
@@ -238,18 +246,21 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             KeyCode::Backspace => {
                 if app.api_key_input_cursor > 0 {
                     app.api_key_input_cursor -= 1;
-                    app.api_key_input.remove(app.api_key_input_cursor);
+                    let byte_pos = char_to_byte_index(&app.api_key_input, app.api_key_input_cursor);
+                    app.api_key_input.remove(byte_pos);
                 }
             }
             KeyCode::Char(c) => {
-                app.api_key_input.insert(app.api_key_input_cursor, c);
+                let byte_pos = char_to_byte_index(&app.api_key_input, app.api_key_input_cursor);
+                app.api_key_input.insert(byte_pos, c);
                 app.api_key_input_cursor += 1;
             }
             KeyCode::Left => {
                 app.api_key_input_cursor = app.api_key_input_cursor.saturating_sub(1);
             }
             KeyCode::Right => {
-                app.api_key_input_cursor = (app.api_key_input_cursor + 1).min(app.api_key_input.len());
+                let char_count = app.api_key_input.chars().count();
+                app.api_key_input_cursor = (app.api_key_input_cursor + 1).min(char_count);
             }
             _ => {}
         }
@@ -564,8 +575,8 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                     content: user_message,
                 });
 
-                // Build prompt with chat history and session context
-                let prompt = build_query_prompt(&app.chat_messages, &app.session_context);
+                // Build prompt with chat history, session context, and browsed chapters
+                let prompt = build_query_prompt(&app.chat_messages, &app.session_context, &app.browsed_chapters);
 
                 app.query_input.clear();
                 app.query_cursor = 0;
@@ -617,29 +628,34 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         KeyCode::Backspace => {
             if app.query_cursor > 0 {
-                app.query_input.remove(app.query_cursor - 1);
                 app.query_cursor -= 1;
+                let byte_pos = char_to_byte_index(&app.query_input, app.query_cursor);
+                app.query_input.remove(byte_pos);
             }
         }
         KeyCode::Delete => {
-            if app.query_cursor < app.query_input.len() {
-                app.query_input.remove(app.query_cursor);
+            let char_count = app.query_input.chars().count();
+            if app.query_cursor < char_count {
+                let byte_pos = char_to_byte_index(&app.query_input, app.query_cursor);
+                app.query_input.remove(byte_pos);
             }
         }
         KeyCode::Left => {
             app.query_cursor = app.query_cursor.saturating_sub(1);
         }
         KeyCode::Right => {
-            app.query_cursor = (app.query_cursor + 1).min(app.query_input.len());
+            let char_count = app.query_input.chars().count();
+            app.query_cursor = (app.query_cursor + 1).min(char_count);
         }
         KeyCode::Home => {
             app.query_cursor = 0;
         }
         KeyCode::End => {
-            app.query_cursor = app.query_input.len();
+            app.query_cursor = app.query_input.chars().count();
         }
         KeyCode::Char(c) => {
-            app.query_input.insert(app.query_cursor, c);
+            let byte_pos = char_to_byte_index(&app.query_input, app.query_cursor);
+            app.query_input.insert(byte_pos, c);
             app.query_cursor += 1;
         }
         _ => {}
@@ -647,12 +663,27 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
-fn build_query_prompt(chat_history: &[ChatMessage], context: &[crate::scripture::Scripture]) -> String {
+fn build_query_prompt(
+    chat_history: &[ChatMessage],
+    context: &[crate::scripture::Scripture],
+    browsed_chapters: &[(String, i32)],
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str("You are helping with LDS (Latter-day Saint) scripture study. ");
     prompt.push_str("When answering, prioritize the Book of Mormon, Doctrine and Covenants, ");
     prompt.push_str("and Pearl of Great Price alongside the Bible. Include specific verse citations.\n\n");
+
+    // Include recently browsed chapters (lightweight context)
+    if !browsed_chapters.is_empty() {
+        prompt.push_str("Recently viewed chapters: ");
+        let chapters: Vec<String> = browsed_chapters.iter()
+            .take(10)  // Limit to last 10 chapters
+            .map(|(book, ch)| format!("{} {}", book, ch))
+            .collect();
+        prompt.push_str(&chapters.join(", "));
+        prompt.push_str("\n\n");
+    }
 
     if !context.is_empty() {
         prompt.push_str("Scripture Context:\n");

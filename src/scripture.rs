@@ -178,7 +178,7 @@ impl ScriptureDb {
         // Also handle en-dash (–) and em-dash (—) in verse ranges
         let patterns = vec![
             // Pattern: "**1 Nephi 11:15–16**:", "2 Corinthians 13:14", "Mosiah 3:19a"
-            r"(?:\*+|_+)?(?P<num>[123]\s+)?(?P<book>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(?P<chapter>\d+):(?P<verse>\d+)(?:[-–—](?P<endverse>\d+))?[a-zA-Z]*(?:\*+|_+)?",
+            r"(?:\*+|_+)?(?P<num>[1234]\s+)?(?P<book>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(?P<chapter>\d+):(?P<verse>\d+)(?:[-–—](?P<endverse>\d+))?[a-zA-Z]*(?:\*+|_+)?",
         ];
 
         for pattern_str in patterns {

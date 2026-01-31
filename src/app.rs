@@ -103,6 +103,9 @@ pub struct App {
     pub context_state: ListState,        // For navigating context list
     pub show_context_panel: bool,        // Toggle between scripture and context view
 
+    // Browsed chapters (for AI context, lightweight tracking)
+    pub browsed_chapters: Vec<(String, i32)>,  // (book_title, chapter_number)
+
     // Animation state
     pub animation_frame: u8, // 0-2 for ellipsis animation
 
@@ -212,6 +215,8 @@ impl App {
             session_context: Vec::new(),
             context_state: ListState::default(),
             show_context_panel: false,
+
+            browsed_chapters: Vec::new(),
 
             animation_frame: 0,
 
@@ -394,11 +399,9 @@ impl App {
             self.cached_verses = verses.into_iter().cloned().collect();
             self.content_scroll = 0;
 
-            // Add to session context
-            for verse in &self.cached_verses {
-                if !self.session_context.iter().any(|v| v.verse_title == verse.verse_title) {
-                    self.session_context.push(verse.clone());
-                }
+            // Track browsed chapter (lightweight, not individual verses)
+            if !self.browsed_chapters.iter().any(|(b, c)| b == &book && *c == chapter) {
+                self.browsed_chapters.push((book, chapter));
             }
         }
     }
