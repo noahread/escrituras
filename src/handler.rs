@@ -61,6 +61,8 @@ fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('j') | KeyCode::Down => {
             if app.focus == FocusPane::Navigation {
                 app.nav_down();
+            } else if app.show_context_panel {
+                app.context_nav_down();
             } else {
                 app.select_next_verse();
             }
@@ -68,6 +70,8 @@ fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('k') | KeyCode::Up => {
             if app.focus == FocusPane::Navigation {
                 app.nav_up();
+            } else if app.show_context_panel {
+                app.context_nav_up();
             } else {
                 app.select_prev_verse();
             }
@@ -138,13 +142,24 @@ fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             }
         }
         KeyCode::Char('x') => {
-            if app.focus == FocusPane::Content {
+            if app.focus == FocusPane::Content && !app.show_context_panel {
                 if let Some(verse) = app.get_selected_verse().cloned() {
                     if !app.session_context.iter().any(|v| v.verse_title == verse.verse_title) {
                         app.session_context.push(verse);
                     }
                 }
             }
+        }
+        // Toggle saved scriptures panel
+        KeyCode::Char('X') => {
+            app.show_context_panel = !app.show_context_panel;
+            if app.show_context_panel && app.context_state.selected().is_none() && !app.session_context.is_empty() {
+                app.context_state.select(Some(0));
+            }
+        }
+        // Remove from saved scriptures when panel is shown
+        KeyCode::Char('d') if app.focus == FocusPane::Content && app.show_context_panel => {
+            app.remove_selected_context();
         }
         KeyCode::Char('s') => {
             if app.focus == FocusPane::Content {

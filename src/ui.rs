@@ -144,23 +144,28 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
 
     let hints = match (app.screen, app.input_mode) {
         (Screen::Browse, InputMode::Normal) => {
-            if app.focus == FocusPane::Content {
-                vec![
-                    Span::styled(" j/k ", key_style),
-                    Span::styled(" verse ", label_style),
-                    Span::styled(" c ", key_style),
-                    Span::styled(" copy ", label_style),
-                    Span::styled(" x ", key_style),
-                    Span::styled(" save ", label_style),
-                    Span::styled(" s ", key_style),
-                    Span::styled(" search ", label_style),
-                    Span::styled(" Tab ", key_style),
-                    Span::styled(" nav ", label_style),
-                    Span::styled(" a ", key_style),
-                    Span::styled(" AI ", label_style),
-                    Span::styled(" q ", key_style),
-                    Span::styled(" quit ", label_style),
-                ]
+            let mut hints = if app.focus == FocusPane::Content {
+                if app.show_context_panel {
+                    // Saved scriptures panel is showing
+                    vec![
+                        Span::styled(" j/k ", key_style),
+                        Span::styled(" nav ", label_style),
+                        Span::styled(" d ", key_style),
+                        Span::styled(" remove ", label_style),
+                    ]
+                } else {
+                    // Normal scripture content
+                    vec![
+                        Span::styled(" j/k ", key_style),
+                        Span::styled(" verse ", label_style),
+                        Span::styled(" c ", key_style),
+                        Span::styled(" copy ", label_style),
+                        Span::styled(" x ", key_style),
+                        Span::styled(" save ", label_style),
+                        Span::styled(" s ", key_style),
+                        Span::styled(" search ", label_style),
+                    ]
+                }
             } else {
                 vec![
                     Span::styled(" j/k ", key_style),
@@ -169,16 +174,22 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                     Span::styled(" select ", label_style),
                     Span::styled(" h ", key_style),
                     Span::styled(" back ", label_style),
-                    Span::styled(" Tab ", key_style),
-                    Span::styled(" focus ", label_style),
-                    Span::styled(" / ", key_style),
-                    Span::styled(" search ", label_style),
-                    Span::styled(" a ", key_style),
-                    Span::styled(" AI ", label_style),
-                    Span::styled(" q ", key_style),
-                    Span::styled(" quit ", label_style),
                 ]
-            }
+            };
+            // Common hints for Browse mode
+            hints.extend(vec![
+                Span::styled(" Tab ", key_style),
+                Span::styled(" focus ", label_style),
+                Span::styled(" X ", key_style),
+                Span::styled(if app.show_context_panel { " scripture " } else { " saved " }, label_style),
+                Span::styled(" / ", key_style),
+                Span::styled(" search ", label_style),
+                Span::styled(" a ", key_style),
+                Span::styled(" AI ", label_style),
+                Span::styled(" q ", key_style),
+                Span::styled(" quit ", label_style),
+            ]);
+            hints
         },
         (Screen::Search, InputMode::Normal) => vec![
             Span::styled(" j/k ", key_style),
@@ -287,7 +298,13 @@ fn render_browse_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     app.refs_area = None;
 
     render_navigation(app, frame, nav_area);
-    render_content(app, frame, content_area);
+
+    // Show saved scriptures panel or scripture content
+    if app.show_context_panel {
+        render_context_panel(app, frame, content_area);
+    } else {
+        render_content(app, frame, content_area);
+    }
 }
 
 fn render_navigation(app: &mut App, frame: &mut Frame, area: Rect) {
