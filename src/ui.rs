@@ -107,7 +107,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     let context_count = app.session_context_count();
     let context_indicator = if context_count > 0 {
-        format!(" [{} verses in context]", context_count)
+        format!(" [{} saved]", context_count)
     } else {
         String::new()
     };
@@ -151,7 +151,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                     Span::styled(" c ", key_style),
                     Span::styled(" copy ", label_style),
                     Span::styled(" x ", key_style),
-                    Span::styled(" context ", label_style),
+                    Span::styled(" save ", label_style),
                     Span::styled(" s ", key_style),
                     Span::styled(" search ", label_style),
                     Span::styled(" Tab ", key_style),
@@ -226,10 +226,10 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                     Span::styled(" jump ", label_style),
                 ]);
             }
-            // Context toggle hint
+            // Saved scriptures toggle hint
             hints.extend(vec![
                 Span::styled(" X ", key_style),
-                Span::styled(if app.show_context_panel { " scripture " } else { " context " }, label_style),
+                Span::styled(if app.show_context_panel { " scripture " } else { " saved " }, label_style),
             ]);
             // Provider and model picker hints
             hints.extend(vec![
@@ -731,10 +731,10 @@ fn render_context_panel(app: &mut App, frame: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .title(format!(" Context ({}) ", app.session_context.len()));
+        .title(format!(" Saved Scriptures ({}) ", app.session_context.len()));
 
     if app.session_context.is_empty() {
-        let placeholder = Paragraph::new("No scriptures in context.\nPress 'x' on a verse to add it.")
+        let placeholder = Paragraph::new("No saved scriptures.\nPress 'x' on a verse to save it.")
             .style(Style::default().fg(Color::DarkGray))
             .block(block);
         frame.render_widget(placeholder, area);
