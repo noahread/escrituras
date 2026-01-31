@@ -1,129 +1,138 @@
-# Scripture CLI
+# Stick of Joseph, Stick of Judah
 
-A command-line tool for browsing LDS scriptures and querying with Ollama.
+A terminal user interface (TUI) for scripture study with AI-powered insights. Browse, search, and explore the scriptures with support for multiple AI providers.
 
 ## Features
 
-- 📖 **Browse scriptures** by volume → book → chapter
-- 🔍 **Search scripture text** with flexible queries  
-- 🤖 **Query Ollama** with scripture context for AI-powered insights
-- 📚 **List all available** books and chapters
+- **Browse Scriptures**: Navigate by volume, book, and chapter with verse selection
+- **Full-text Search**: Search across all 41,995+ verses instantly
+- **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
+- **Multi-Provider AI**: Switch between AI providers seamlessly
+- **Context Building**: Add verses to your session context for AI-informed responses
+- **Scripture References**: AI responses include clickable scripture references
 
 ## Installation
 
 ```bash
-# Build the CLI
+# Build the release binary
 cargo build --release
 
-# Optional: Install globally  
-cargo install --path .
+# Run the app
+./target/release/escrituras
+```
+
+## AI Provider Setup
+
+The app supports three AI providers. Configure at least one:
+
+### Ollama (Local, Free)
+```bash
+# Install Ollama from https://ollama.ai
+ollama pull llama3.2
+
+# No API key needed - runs locally
+```
+
+### Claude (Anthropic)
+```bash
+# Set environment variable
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Or enter the key in the app when prompted
+```
+
+### OpenAI
+```bash
+# Set environment variable
+export OPENAI_API_KEY="your-api-key"
+
+# Or enter the key in the app when prompted
 ```
 
 ## Usage
 
-### List all available scriptures
+Launch the app:
 ```bash
-./target/debug/scripture list
+./target/release/escrituras
 ```
 
-### Search scripture text
-```bash
-# Basic search
-./target/debug/scripture search "faith"
+### Modes
 
-# Limit results
-./target/debug/scripture search "faith" --limit 3
-```
+| Key | Mode | Description |
+|-----|------|-------------|
+| `b` | Browse | Navigate volumes, books, chapters, and verses |
+| `s` | Search | Full-text search across all scriptures |
+| `a` | AI Chat | Ask questions with AI and scripture context |
 
-### Browse scriptures interactively
-```bash
-./target/debug/scripture browse
-```
-This opens an interactive menu to navigate: Volume → Book → Chapter
+### Navigation
 
-### Query with Ollama
-```bash
-# First, make sure Ollama is running
-ollama serve
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `Enter` | Select / Expand |
+| `Backspace` | Go back |
+| `Tab` | Cycle focus between panels |
+| `q` | Quit |
 
-# Query with scripture context (uses llama3.2:latest by default)
-./target/debug/scripture query "What does faith mean?" --context "faith"
+### AI Mode
 
-# Query with specific model
-./target/debug/scripture query "What does faith mean?" --context "faith" --model "DeepSeek-r1:latest"
+| Key | Action |
+|-----|--------|
+| `i` | Enter input mode |
+| `Esc` | Exit input mode |
+| `Enter` | Submit question |
+| `x` | Add selected verse to context |
+| `X` | View/manage context |
+| `M` | Change AI model |
+| `P` | Change AI provider |
 
-# Query without context
-./target/debug/scripture query "Explain the creation story"
-```
+### Scripture Selection
 
-## Data Source
+| Key | Action |
+|-----|--------|
+| `v` | Start verse selection (in Browse mode) |
+| `v` | End selection and add range to context |
+| `Esc` | Cancel selection |
 
-Uses the comprehensive LDS Scripture Database (2020.12.08) containing:
+## Scripture Database
+
+Includes the complete LDS Standard Works:
+
 - **Old Testament** (39 books)
-- **New Testament** (27 books) 
+- **New Testament** (27 books)
 - **Book of Mormon** (15 books)
 - **Doctrine and Covenants** (138 sections)
 - **Pearl of Great Price** (5 books)
 
-**Total: 41,995+ verses** across all standard works.
+**Total: 41,995+ verses**
 
-## Ollama Integration
+## Configuration
 
-The CLI integrates with [Ollama](https://ollama.ai) for AI-powered scripture study:
+Settings are stored in `~/.config/escrituras/config.json`:
 
-1. **Install Ollama**: Follow instructions at https://ollama.ai
-2. **Start Ollama**: Run `ollama serve`
-3. **Pull a model**: `ollama pull llama2` (or any preferred model)
-4. **Query with context**: Use `--context` to include relevant scriptures
-
-### Example Workflow
-```bash
-# Search for verses about faith
-./target/debug/scripture search "faith" --limit 3
-
-# List available Ollama models
-./target/debug/scripture models
-
-# Ask AI about faith with scripture context
-./target/debug/scripture query "How can I increase my faith?" --context "faith"
+```json
+{
+  "provider": "claude",
+  "default_model": "claude-sonnet-4-20250514",
+  "claude_api_key": "...",
+  "openai_api_key": "..."
+}
 ```
 
-## Available Commands
+Environment variables take precedence over config file values.
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `list` | Show all volumes, books, and chapters | `scripture list` |
-| `search <query>` | Search scripture text | `scripture search "love"` |
-| `browse` | Interactive scripture browser | `scripture browse` |
-| `query <question>` | Interactive AI conversation with follow-ups | `scripture query "What is charity?" --context "charity"` |
-| `models` | List available Ollama models | `scripture models` |
+## Building from Source
 
-## Interactive Features
-
-### **AI Conversations (`query`)**
-- **Follow-up questions**: Ask additional questions that build on previous answers
-- **Scripture references**: Automatically detects when AI mentions scriptures
-- **Read references**: Select and read any scripture mentioned in the response  
-- **Conversation history**: Maintains context across multiple questions
-- **Context switching**: Add new scripture context mid-conversation
-
-### **Example Workflow**
 ```bash
-# Start with a question
-./scripture.sh query "What is faith?"
+# Clone and build
+git clone <repo-url>
+cd escrituras
+cargo build --release
 
-# AI responds, then you can:
-# → Ask follow-up: "How do I increase my faith?"
-# → Read references: Select any scripture mentioned
-# → Add context: Search for "faith" to add relevant verses
-# → Continue conversation with full context
+# Binary will be at ./target/release/escrituras
 ```
 
-## Tips
+## License
 
-- Use quotes for multi-word searches: `"love one another"`
-- The `--context` flag finds relevant verses to include with your question
-- Interactive browsing (`browse`) is great for reading complete chapters
-- Search is case-insensitive and matches verse text, titles, and book names
-- In `query` mode, you can ask unlimited follow-up questions
-- Referenced scriptures show surrounding verses for context
+MIT

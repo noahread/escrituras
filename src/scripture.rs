@@ -14,6 +14,31 @@ pub struct Scripture {
     pub scripture_text: String,
 }
 
+/// Represents a scripture reference that may span multiple verses
+#[derive(Debug, Clone)]
+pub struct ScriptureRange {
+    pub book_title: String,
+    #[allow(dead_code)]
+    pub book_short_title: String,
+    pub chapter_number: i32,
+    pub start_verse: i32,
+    pub end_verse: i32, // Same as start_verse for single verses
+}
+
+impl ScriptureRange {
+    pub fn display_title(&self) -> String {
+        if self.start_verse == self.end_verse {
+            format!("{} {}:{}", self.book_title, self.chapter_number, self.start_verse)
+        } else {
+            format!("{} {}:{}-{}", self.book_title, self.chapter_number, self.start_verse, self.end_verse)
+        }
+    }
+
+    pub fn contains_verse(&self, verse_num: i32) -> bool {
+        verse_num >= self.start_verse && verse_num <= self.end_verse
+    }
+}
+
 pub struct ScriptureDb {
     scriptures: Vec<Scripture>,
     volumes: Vec<String>,
@@ -32,17 +57,9 @@ impl ScriptureDb {
     }
     
     pub async fn load_from_json(&mut self, path: &str) -> Result<()> {
-        println!("📚 Loading scriptures from {}...", path);
-        
         let content = tokio::fs::read_to_string(path).await?;
         self.scriptures = serde_json::from_str(&content)?;
-        
         self.build_indexes();
-        
-        println!("✅ Loaded {} scriptures across {} volumes", 
-                 self.scriptures.len(), 
-                 self.volumes.len());
-        
         Ok(())
     }
     
@@ -67,12 +84,12 @@ impl ScriptureDb {
             // Collect books by volume in order
             if !seen_books
                 .entry(scripture.volume_title.clone())
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .contains(&scripture.book_title) 
             {
                 books_by_vol
                     .entry(scripture.volume_title.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(scripture.book_title.clone());
                     
                 seen_books
@@ -84,12 +101,12 @@ impl ScriptureDb {
             // Collect chapters by book in order
             if !seen_chapters
                 .entry(scripture.book_title.clone())
-                .or_insert_with(HashSet::new)
+                .or_default()
                 .contains(&scripture.chapter_number)
             {
                 chapters_by_bk
                     .entry(scripture.book_title.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(scripture.chapter_number);
                     
                 seen_chapters
@@ -137,7 +154,7 @@ impl ScriptureDb {
     
     pub fn search(&self, query: &str, limit: usize) -> Vec<&Scripture> {
         let query_lower = query.to_lowercase();
-        
+
         self.scriptures
             .iter()
             .filter(|scripture| {
@@ -148,8 +165,133 @@ impl ScriptureDb {
             .take(limit)
             .collect()
     }
-    
-    pub fn get_all_scriptures(&self) -> &[Scripture] {
-        &self.scriptures
+
+    /// Extract scripture references from text (e.g., AI responses)
+    /// Returns ranges that preserve the original reference format (e.g., "Mormon 11:2-4")
+    pub fn extract_scripture_references(&self, text: &str) -> Vec<ScriptureRange> {
+        use regex::Regex;
+
+        let mut references = Vec::new();
+
+        // Comprehensive scripture reference patterns
+        // Allow optional leading/trailing markdown (**, *, _) and trailing letters/punctuation
+        // Also handle en-dash (–) and em-dash (—) in verse ranges
+        let patterns = vec![
+            // Pattern: "**1 Nephi 11:15–16**:", "2 Corinthians 13:14", "Mosiah 3:19a"
+            r"(?:\*+|_+)?(?P<num>[123]\s+)?(?P<book>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(?P<chapter>\d+):(?P<verse>\d+)(?:[-–—](?P<endverse>\d+))?[a-zA-Z]*(?:\*+|_+)?",
+        ];
+
+        for pattern_str in patterns {
+            if let Ok(re) = Regex::new(pattern_str) {
+                for caps in re.captures_iter(text) {
+                    let num_prefix = caps.name("num").map(|m| m.as_str().trim()).unwrap_or("");
+                    let book_name = caps.name("book").map(|m| m.as_str().trim()).unwrap_or("");
+                    let chapter_str = caps.name("chapter").map(|m| m.as_str()).unwrap_or("");
+                    let verse_str = caps.name("verse").map(|m| m.as_str()).unwrap_or("");
+
+                    if let (Ok(chapter), Ok(start_verse)) = (chapter_str.parse::<i32>(), verse_str.parse::<i32>()) {
+                        // Build full book name with number prefix if present
+                        let full_book_name = if !num_prefix.is_empty() {
+                            format!("{} {}", num_prefix, book_name)
+                        } else {
+                            book_name.to_string()
+                        };
+
+                        // Verify the reference exists in our database
+                        if let Some(scripture) = self.find_exact_scripture(&full_book_name, chapter, start_verse) {
+                            // Determine end verse (same as start for single verse references)
+                            let end_verse = caps.name("endverse")
+                                .and_then(|m| m.as_str().parse::<i32>().ok())
+                                .unwrap_or(start_verse);
+
+                            let range = ScriptureRange {
+                                book_title: scripture.book_title.clone(),
+                                book_short_title: scripture.book_short_title.clone(),
+                                chapter_number: chapter,
+                                start_verse,
+                                end_verse,
+                            };
+
+                            // Avoid duplicate ranges
+                            if !references.iter().any(|r: &ScriptureRange| {
+                                r.book_title == range.book_title
+                                    && r.chapter_number == range.chapter_number
+                                    && r.start_verse == range.start_verse
+                                    && r.end_verse == range.end_verse
+                            }) {
+                                references.push(range);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        references
+    }
+
+    fn find_exact_scripture(&self, book_name: &str, chapter: i32, verse: i32) -> Option<Scripture> {
+        for scripture in &self.scriptures {
+            // Try exact book title match
+            if (scripture.book_title.eq_ignore_ascii_case(book_name) ||
+                scripture.book_short_title.eq_ignore_ascii_case(book_name)) &&
+               scripture.chapter_number == chapter &&
+               scripture.verse_number == verse {
+                return Some(scripture.clone());
+            }
+
+            // Try fuzzy matching for common variations
+            if self.book_matches_fuzzy(&scripture.book_title, book_name) &&
+               scripture.chapter_number == chapter &&
+               scripture.verse_number == verse {
+                return Some(scripture.clone());
+            }
+        }
+
+        None
+    }
+
+    fn book_matches_fuzzy(&self, db_book: &str, search_book: &str) -> bool {
+        let db_lower = db_book.to_lowercase();
+        let search_lower = search_book.to_lowercase();
+
+        // Direct match
+        if db_lower == search_lower {
+            return true;
+        }
+
+        // Handle common variations (numbered books)
+        let variations = [
+            ("1 nephi", "nephi"),
+            ("2 nephi", "nephi"),
+            ("3 nephi", "nephi"),
+            ("4 nephi", "nephi"),
+            ("1 corinthians", "corinthians"),
+            ("2 corinthians", "corinthians"),
+            ("1 thessalonians", "thessalonians"),
+            ("2 thessalonians", "thessalonians"),
+            ("1 timothy", "timothy"),
+            ("2 timothy", "timothy"),
+            ("1 peter", "peter"),
+            ("2 peter", "peter"),
+            ("1 john", "john"),
+            ("2 john", "john"),
+            ("3 john", "john"),
+            ("1 samuel", "samuel"),
+            ("2 samuel", "samuel"),
+            ("1 kings", "kings"),
+            ("2 kings", "kings"),
+            ("1 chronicles", "chronicles"),
+            ("2 chronicles", "chronicles"),
+        ];
+
+        for (full, short) in &variations {
+            if db_lower == *full && search_lower == *short {
+                return true;
+            }
+        }
+
+        // Also check if db_book contains search_book
+        db_lower.contains(&search_lower)
     }
 }
