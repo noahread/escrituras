@@ -31,3 +31,6 @@ yarn-error.log*
 # Embeddings (hosted on GitHub Releases, not in repo)
 data/
 embeddings.tar.gz
+
+# Model cache
+.fastembed_cache/
