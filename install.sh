@@ -4,8 +4,6 @@ set -e
 REPO="noahread/escrituras"
 BINARY="scriptures"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/escrituras"
-DATA_DIR="$CONFIG_DIR/data"
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -16,6 +14,14 @@ case "$OS" in
   linux) OS="linux" ;;
   *) echo "Unsupported OS: $OS"; exit 1 ;;
 esac
+
+# Set config directory to match Rust dirs::config_dir()
+if [ "$OS" = "macos" ]; then
+  CONFIG_DIR="${HOME}/Library/Application Support/escrituras"
+else
+  CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/escrituras"
+fi
+DATA_DIR="$CONFIG_DIR/data"
 
 case "$ARCH" in
   x86_64) ARCH="x86_64" ;;
