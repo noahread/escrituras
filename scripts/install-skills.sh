@@ -53,14 +53,14 @@ for skill in "${SKILLS[@]}"; do
       updates_available+=("$skill:$local_version:$source_version")
     else
       echo "  ✓ /${skill} (v${local_version}, up to date)"
-      ((skipped++))
+      ((skipped++)) || true
     fi
   else
     # New install
     mkdir -p "${SKILLS_DIR}/${skill}"
     cp "$SOURCE_FILE" "$LOCAL_FILE"
     echo "  ✓ /${skill} (v${source_version}, installed)"
-    ((installed++))
+    ((installed++)) || true
   fi
 done
 
@@ -82,7 +82,7 @@ if [ ${#updates_available[@]} -gt 0 ]; then
       LOCAL_FILE="${SKILLS_DIR}/${skill}/SKILL.md"
       cp "$SOURCE_FILE" "$LOCAL_FILE"
       echo "  ✓ /${skill} updated to v${source_ver}"
-      ((updated++))
+      ((updated++)) || true
     done
   else
     echo "  Skipped updates"

@@ -145,14 +145,14 @@ if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
         updates_available+=("$skill:$local_version:$remote_version")
       else
         echo "  ✓ /${skill} (v${local_version}, up to date)"
-        ((skipped++))
+        ((skipped++)) || true
       fi
     else
       # New install
       mkdir -p "${SKILLS_DIR}/${skill}"
       mv "$TEMP_FILE" "$LOCAL_FILE"
       echo "  ✓ /${skill} (v${remote_version}, installed)"
-      ((installed++))
+      ((installed++)) || true
     fi
   done
 
@@ -174,7 +174,7 @@ if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
         LOCAL_FILE="${SKILLS_DIR}/${skill}/SKILL.md"
         mv "$TEMP_FILE" "$LOCAL_FILE"
         echo "  ✓ /${skill} updated to v${remote_ver}"
-        ((updated++))
+        ((updated++)) || true
       done
     else
       echo "  Skipped updates"
