@@ -27,3 +27,7 @@ yarn-error.log*
 
 # Tauri
 /src-tauri/target/
+
+# Embeddings (hosted on GitHub Releases, not in repo)
+data/
+embeddings.tar.gz

@@ -1,7 +1,9 @@
 mod app;
 mod claude;
 mod config;
+mod embeddings;
 mod handler;
+mod mcp;
 mod ollama;
 mod openai;
 mod provider;
@@ -15,6 +17,47 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Check for MCP server mode
+    if args.iter().any(|a| a == "--mcp") {
+        return run_mcp_server().await;
+    }
+
+    // Run TUI mode
+    run_tui().await
+}
+
+async fn run_mcp_server() -> Result<()> {
+    // Load scripture database (same path as TUI mode)
+    let mut scripture_db = scripture::ScriptureDb::new();
+    scripture_db.load_from_json("lds-scriptures-2020.12.08/json/lds-scriptures-json.txt").await?;
+
+    // Load embeddings if available (for semantic search)
+    // Try local data/ directory first, then ~/.config/escrituras/data/
+    let embeddings_db = {
+        let local_path = std::path::Path::new("data");
+        let config_path = dirs::config_dir()
+            .map(|p| p.join("escrituras/data"));
+
+        if local_path.join("scripture_embeddings.npy").exists() {
+            embeddings::EmbeddingsDb::load(local_path).ok()
+        } else if let Some(ref cfg_path) = config_path {
+            if cfg_path.join("scripture_embeddings.npy").exists() {
+                embeddings::EmbeddingsDb::load(cfg_path).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    mcp::run_mcp_server(scripture_db, embeddings_db);
+    Ok(())
+}
+
+async fn run_tui() -> Result<()> {
     // Install panic hook to restore terminal on crash
     tui::install_panic_hook();
 

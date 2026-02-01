@@ -5,11 +5,12 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 ## Features
 
 - **Browse Scriptures**: Navigate by volume, book, and chapter with verse selection
-- **Full-text Search**: Search across all 41,995+ verses instantly
+- **Full-text Search**: Search across all 41,995+ verses with stemming (faith → faithful)
 - **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
 - **Multi-Provider AI**: Switch between AI providers seamlessly
 - **Context Building**: Add verses to your session context for AI-informed responses
 - **Scripture References**: AI responses include clickable scripture references
+- **MCP Server**: Expose scriptures to AI assistants via Model Context Protocol
 
 ## Installation
 
@@ -92,7 +93,7 @@ scriptures
 
 | Key | Action |
 |-----|--------|
-| `i` | Enter input mode |
+| `Tab` | Focus input (auto-enters input mode) |
 | `Esc` | Exit input mode |
 | `Enter` | Submit question |
 | `x` | Add selected verse to context |
@@ -134,6 +135,39 @@ Settings are stored in `~/.config/escrituras/config.json`:
 ```
 
 Environment variables take precedence over config file values.
+
+## MCP Server Mode
+
+Run as an MCP (Model Context Protocol) server to expose scriptures to AI assistants like Claude Code:
+
+```bash
+scriptures --mcp
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `lookup_verse` | Get a specific verse (e.g., "John 3:16", "1 Nephi 3:7") |
+| `lookup_chapter` | Get all verses in a chapter |
+| `search_scriptures` | Search with stemming (faith → faithful) |
+| `get_context` | Get surrounding verses for context |
+| `list_books` | List all books, optionally by volume |
+
+### Claude Code Configuration
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "scriptures": {
+      "command": "scriptures",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
 
 ## Building from Source
 

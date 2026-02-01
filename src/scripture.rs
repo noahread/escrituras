@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use anyhow::Result;
+use rust_stemmers::{Algorithm, Stemmer};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Scripture {
@@ -151,16 +152,55 @@ impl ScriptureDb {
             .filter(|s| s.book_title == book && s.chapter_number == chapter)
             .collect()
     }
-    
+
+    /// Get a scripture by its verse title (e.g., "John 3:16")
+    pub fn get_by_title(&self, verse_title: &str) -> Option<&Scripture> {
+        self.scriptures.iter().find(|s| s.verse_title == verse_title)
+    }
+
     pub fn search(&self, query: &str, limit: usize) -> Vec<&Scripture> {
         let query_lower = query.to_lowercase();
+        let stemmer = Stemmer::create(Algorithm::English);
+
+        // Stem each word in the query (strip punctuation first)
+        let stemmed_terms: Vec<String> = query_lower
+            .split_whitespace()
+            .map(|word| {
+                let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
+                stemmer.stem(&clean).to_string()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        // If query is empty after stemming, return empty results
+        if stemmed_terms.is_empty() {
+            return Vec::new();
+        }
 
         self.scriptures
             .iter()
             .filter(|scripture| {
-                scripture.scripture_text.to_lowercase().contains(&query_lower)
-                    || scripture.verse_title.to_lowercase().contains(&query_lower)
+                // Check exact match for verse/book titles (for reference searches)
+                if scripture.verse_title.to_lowercase().contains(&query_lower)
                     || scripture.book_title.to_lowercase().contains(&query_lower)
+                {
+                    return true;
+                }
+
+                // Stem words in scripture text and check if all query terms match
+                let text_lower = scripture.scripture_text.to_lowercase();
+                let text_stems: Vec<String> = text_lower
+                    .split_whitespace()
+                    .map(|word| {
+                        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
+                        stemmer.stem(&clean).to_string()
+                    })
+                    .collect();
+
+                // All stemmed query terms must appear in stemmed text
+                stemmed_terms.iter().all(|term| {
+                    text_stems.iter().any(|text_stem| text_stem == term)
+                })
             })
             .take(limit)
             .collect()
@@ -712,5 +752,57 @@ mod tests {
         assert!(range.contains_verse(21));
         assert!(!range.contains_verse(18));
         assert!(!range.contains_verse(22));
+    }
+
+    // Stemming search tests
+
+    #[test]
+    fn test_search_stemming_faith() {
+        let db = create_test_db();
+        // Alma 32:21 contains "faith" - searching "faithful" should match via stemming
+        let results = db.search("faith", 10);
+        assert!(!results.is_empty(), "Should find verses containing 'faith'");
+        assert!(results.iter().any(|s| s.book_title == "Alma" && s.chapter_number == 32));
+    }
+
+    #[test]
+    fn test_search_exact_book_title() {
+        let db = create_test_db();
+        // Searching for a book title should still work
+        let results = db.search("John", 10);
+        assert!(!results.is_empty(), "Should find John by book title");
+    }
+
+    #[test]
+    fn test_search_exact_verse_title() {
+        let db = create_test_db();
+        // Searching for a verse reference should work
+        let results = db.search("John 3:16", 10);
+        assert!(!results.is_empty(), "Should find John 3:16 by verse title");
+    }
+
+    #[test]
+    fn test_search_stemming_loved() {
+        let db = create_test_db();
+        // John 3:16 contains "loved" - searching "love" should match via stemming (love -> lov, loved -> lov)
+        let results = db.search("love", 10);
+        assert!(
+            results.iter().any(|s| s.scripture_text.to_lowercase().contains("loved")),
+            "Searching 'love' should find verses with 'loved'"
+        );
+    }
+
+    #[test]
+    fn test_search_empty_query() {
+        let db = create_test_db();
+        let results = db.search("", 10);
+        assert!(results.is_empty(), "Empty query should return no results");
+    }
+
+    #[test]
+    fn test_search_punctuation_only() {
+        let db = create_test_db();
+        let results = db.search("...", 10);
+        assert!(results.is_empty(), "Punctuation-only query should return no results");
     }
 }

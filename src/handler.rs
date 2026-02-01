@@ -45,14 +45,14 @@ async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
 
 async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<()> {
     match app.screen {
-        Screen::Browse => handle_browse_normal(app, key)?,
-        Screen::Search => handle_search_normal(app, key),
+        Screen::Browse => handle_browse_normal(app, key).await?,
+        Screen::Search => handle_search_normal(app, key).await,
         Screen::Query => handle_query_normal(app, key).await?,
     }
     Ok(())
 }
 
-fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
+async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
     match key.code {
         // Quit
         KeyCode::Char('q') => app.should_quit = true,
@@ -186,7 +186,7 @@ fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
-fn handle_search_normal(app: &mut App, key: KeyEvent) {
+async fn handle_search_normal(app: &mut App, key: KeyEvent) {
     match key.code {
         // Back to browse
         KeyCode::Esc => {
@@ -631,14 +631,14 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
 
 async fn handle_editing_mode(app: &mut App, key: KeyEvent) -> Result<()> {
     match app.screen {
-        Screen::Search => handle_search_editing(app, key),
+        Screen::Search => handle_search_editing(app, key).await,
         Screen::Query => handle_query_editing(app, key).await?,
         _ => {}
     }
     Ok(())
 }
 
-fn handle_search_editing(app: &mut App, key: KeyEvent) {
+async fn handle_search_editing(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
@@ -671,8 +671,28 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                     content: user_message,
                 });
 
-                // Build prompt with chat history, session context, and browsed chapters
-                let prompt = build_query_prompt(&app.chat_messages, &app.session_context, &app.browsed_chapters);
+                // Determine what the user is currently viewing
+                let current_reading = if !app.show_context_panel && !app.cached_verses.is_empty() {
+                    if let Some(range) = &app.selected_range {
+                        // User is viewing a specific reference range
+                        Some(range.display_title())
+                    } else if let Some(first_verse) = app.cached_verses.first() {
+                        // User is viewing a chapter
+                        Some(format!("{} {}", first_verse.book_title, first_verse.chapter_number))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Build prompt with chat history, session context, browsed chapters, and current reading
+                let prompt = build_query_prompt(
+                    &app.chat_messages,
+                    &app.session_context,
+                    &app.browsed_chapters,
+                    current_reading.as_deref(),
+                );
 
                 app.query_input.clear();
                 app.query_cursor = 0;
@@ -763,12 +783,18 @@ fn build_query_prompt(
     chat_history: &[ChatMessage],
     context: &[crate::scripture::Scripture],
     browsed_chapters: &[(String, i32)],
+    current_reading: Option<&str>,
 ) -> String {
     let mut prompt = String::new();
 
     prompt.push_str("You are helping with LDS (Latter-day Saint) scripture study. ");
     prompt.push_str("When answering, prioritize the Book of Mormon, Doctrine and Covenants, ");
     prompt.push_str("and Pearl of Great Price alongside the Bible. Include specific verse citations.\n\n");
+
+    // Include what the user is currently reading
+    if let Some(reading) = current_reading {
+        prompt.push_str(&format!("The user is currently reading {}.\n\n", reading));
+    }
 
     // Include recently browsed chapters (lightweight context)
     if !browsed_chapters.is_empty() {

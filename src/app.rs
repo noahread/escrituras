@@ -1,5 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
+use std::collections::HashSet;
+use crate::embeddings::EmbeddingsDb;
 use crate::scripture::{Scripture, ScriptureDb, ScriptureRange};
 use crate::ollama::OllamaClient;
 use crate::claude::ClaudeClient;
@@ -143,6 +145,7 @@ pub struct App {
 
     // Data
     pub scripture_db: ScriptureDb,
+    pub embeddings_db: Option<EmbeddingsDb>,
     pub ollama: OllamaClient,
     pub selected_model: String,
 
@@ -181,6 +184,26 @@ impl App {
         // Load default model from config
         let selected_model = config.default_model
             .unwrap_or_else(|| "gemma3:latest".to_string());
+
+        // Load embeddings if available (for semantic search)
+        // Try local data/ directory first, then ~/.config/escrituras/data/
+        let embeddings_db = {
+            let local_path = std::path::Path::new("data");
+            let config_path = dirs::config_dir()
+                .map(|p| p.join("escrituras/data"));
+
+            if local_path.join("scripture_embeddings.npy").exists() {
+                EmbeddingsDb::load(local_path).ok()
+            } else if let Some(ref cfg_path) = config_path {
+                if cfg_path.join("scripture_embeddings.npy").exists() {
+                    EmbeddingsDb::load(cfg_path).ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
 
         let cached_volumes: Vec<String> = scripture_db.get_volumes().to_vec();
 
@@ -250,6 +273,7 @@ impl App {
             refs_area: None,
 
             scripture_db,
+            embeddings_db,
             ollama,
             selected_model,
 
@@ -438,14 +462,47 @@ impl App {
         self.content_scroll = self.content_scroll.saturating_sub(half_page);
     }
 
-    // Search
+    // Search - combines semantic (if available) and keyword results
     pub fn perform_search(&mut self) {
-        if !self.search_input.is_empty() {
-            let results = self.scripture_db.search(&self.search_input, 50);
-            self.search_results = results.into_iter().cloned().collect();
-            if !self.search_results.is_empty() {
-                self.search_state.select(Some(0));
+        if self.search_input.is_empty() {
+            return;
+        }
+
+        let query = &self.search_input.clone();
+        let limit = 50;
+        let semantic_limit = 20; // Show up to 20 semantic results first
+        let mut combined_results: Vec<Scripture> = Vec::new();
+        let mut seen_titles: HashSet<String> = HashSet::new();
+
+        // Try semantic search if embeddings are available (uses local ONNX model)
+        if let Some(embeddings) = &mut self.embeddings_db {
+            // Search embeddings for semantically similar verses (embeds query locally)
+            if let Ok(semantic_matches) = embeddings.search(query, semantic_limit) {
+                // Convert to Scripture objects
+                for (verse_title, _score) in semantic_matches {
+                    if let Some(scripture) = self.scripture_db.get_by_title(&verse_title) {
+                        seen_titles.insert(verse_title);
+                        combined_results.push(scripture.clone());
+                    }
+                }
             }
+        }
+
+        // Add keyword search results (deduped)
+        let keyword_results = self.scripture_db.search(query, limit);
+        for scripture in keyword_results {
+            if !seen_titles.contains(&scripture.verse_title) {
+                seen_titles.insert(scripture.verse_title.clone());
+                combined_results.push(scripture.clone());
+                if combined_results.len() >= limit {
+                    break;
+                }
+            }
+        }
+
+        self.search_results = combined_results;
+        if !self.search_results.is_empty() {
+            self.search_state.select(Some(0));
         }
     }
 
