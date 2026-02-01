@@ -26,7 +26,10 @@ esac
 # Get latest release info
 echo "Fetching latest release..."
 RELEASE_URL="https://api.github.com/repos/$REPO/releases/latest"
-RELEASE_JSON=$(curl -sL "$RELEASE_URL")
+RELEASE_JSON=$(curl -sfL "$RELEASE_URL") || {
+  echo "Error: Failed to fetch release info from GitHub"
+  exit 1
+}
 
 # Download binary
 BINARY_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*$OS-$ARCH" | cut -d '"' -f 4)
@@ -37,7 +40,10 @@ if [ -z "$BINARY_URL" ]; then
 fi
 
 echo "Downloading $BINARY for $OS-$ARCH..."
-curl -sL "$BINARY_URL" | tar -xz -C /tmp
+curl -sfL "$BINARY_URL" | tar -xz -C /tmp || {
+  echo "Error: Failed to download or extract binary"
+  exit 1
+}
 
 echo "Installing binary to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
@@ -50,8 +56,11 @@ EMBEDDINGS_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*embeddings.t
 if [ -n "$EMBEDDINGS_URL" ]; then
   echo "Downloading semantic search embeddings (~45MB)..."
   mkdir -p "$DATA_DIR"
-  curl -sL "$EMBEDDINGS_URL" | tar -xz -C "$DATA_DIR"
-  echo "Installed embeddings to $DATA_DIR"
+  if curl -sfL "$EMBEDDINGS_URL" | tar -xz -C "$DATA_DIR"; then
+    echo "Installed embeddings to $DATA_DIR"
+  else
+    echo "Warning: Failed to download embeddings. Semantic search will be disabled."
+  fi
 else
   echo "Note: Embeddings not found in release. Semantic search will be disabled."
 fi
@@ -114,7 +123,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     TEMP_FILE="/tmp/${skill}-SKILL.md"
 
     # Download remote version
-    curl -sL "$SKILL_URL" -o "$TEMP_FILE"
+    if ! curl -sfL "$SKILL_URL" -o "$TEMP_FILE"; then
+      echo "  ⚠ Failed to download /${skill}"
+      continue
+    fi
     remote_version=$(get_version "$TEMP_FILE")
 
     if [ -f "$LOCAL_FILE" ]; then

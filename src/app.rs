@@ -711,11 +711,12 @@ impl App {
             total_lines += 1; // Role line ("You:" or "AI:")
             // Calculate wrapped lines for each line of content
             for line in msg.content.lines() {
-                let line_len = line.len();
-                if line_len == 0 {
+                // Use character count, not byte length, for proper UTF-8 handling
+                let char_count = line.chars().count();
+                if char_count == 0 {
                     total_lines += 1; // Empty line still takes one line
                 } else {
-                    total_lines += ((line_len / wrap_width) + 1) as u16;
+                    total_lines += ((char_count / wrap_width) + 1) as u16;
                 }
             }
             total_lines += 1; // Blank line after message
@@ -848,7 +849,8 @@ impl App {
             let mut verse_end_line = 0u16;
 
             for (i, verse) in self.cached_verses.iter().enumerate() {
-                let text_lines = (verse.scripture_text.len() / wrap_width + 1) as u16;
+                // Use character count, not byte length, for proper UTF-8 handling
+                let text_lines = (verse.scripture_text.chars().count() / wrap_width + 1) as u16;
                 verse_end_line = verse_start_line + text_lines;
 
                 if i == idx {

@@ -64,8 +64,14 @@ async fn run_tui() -> Result<()> {
     // Initialize terminal
     let mut terminal = tui::init()?;
 
-    // Create app state
-    let mut app = app::App::new().await?;
+    // Create app state - restore terminal on failure
+    let mut app = match app::App::new().await {
+        Ok(app) => app,
+        Err(e) => {
+            tui::restore()?;
+            return Err(e);
+        }
+    };
 
     // Create event handler
     let mut events = tui::EventHandler::new();

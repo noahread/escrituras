@@ -317,13 +317,14 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                             Provider::Ollama => {}
                         }
                         config.provider = Some(provider.as_str().to_string());
-                        let _ = config.save();
-                        app.current_provider = provider;
                         // Set default model for the new provider
                         let models = app.get_models_for_provider(provider);
                         if let Some(model) = models.first() {
                             app.selected_model = model.clone();
+                            config.default_model = Some(model.clone());
                         }
+                        let _ = config.save();
+                        app.current_provider = provider;
                     }
                 }
                 app.show_api_key_input = false;
@@ -384,21 +385,20 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                             config.provider = Some(provider.as_str().to_string());
                             let _ = config.save();
                             // Set model for the new provider
-                            match provider {
+                            let new_model = match provider {
                                 Provider::Ollama => {
                                     // Fetch Ollama models
-                                    if let Ok(models) = app.ollama.list_models().await {
-                                        if let Some(model) = models.first() {
-                                            app.selected_model = model.clone();
-                                        }
-                                    }
+                                    app.ollama.list_models().await.ok()
+                                        .and_then(|models| models.into_iter().next())
                                 }
                                 _ => {
-                                    let models = app.get_models_for_provider(provider);
-                                    if let Some(model) = models.first() {
-                                        app.selected_model = model.clone();
-                                    }
+                                    app.get_models_for_provider(provider).into_iter().next()
                                 }
+                            };
+                            if let Some(model) = new_model {
+                                app.selected_model = model.clone();
+                                // Save auto-selected model to config
+                                let _ = crate::config::Config::save_default_model(&model);
                             }
                         }
                         app.show_provider_picker = false;
