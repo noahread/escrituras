@@ -78,7 +78,7 @@ rm -rf "$TEMP_DIR"
 echo ""
 echo "✓ Installed $BINARY to $INSTALL_DIR/$BINARY"
 echo ""
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
   echo "Add to your PATH by adding this to ~/.bashrc or ~/.zshrc:"
   echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
   echo ""
@@ -87,9 +87,9 @@ echo "Run '$BINARY' to start, or '$BINARY --mcp' for MCP server mode."
 
 # Offer to install Claude Code skills
 echo ""
-read -p "Would you like to install scripture study skills for Claude Code? [y/N] " -n 1 -r
-echo ""
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+printf "Would you like to install scripture study skills for Claude Code? [y/N] "
+read REPLY
+if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
   SKILLS_DIR="${HOME}/.claude/skills"
   SKILLS=(
     "scriptures-scripture"
@@ -165,9 +165,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
       echo "  /${skill}: v${local_ver} → v${remote_ver}"
     done
     echo ""
-    read -p "Would you like to update these skills? [y/N] " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    printf "Would you like to update these skills? [y/N] "
+    read REPLY
+    if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
       for update in "${updates_available[@]}"; do
         IFS=':' read -r skill local_ver remote_ver <<< "$update"
         TEMP_FILE="/tmp/${skill}-SKILL.md"
