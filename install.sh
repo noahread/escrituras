@@ -88,7 +88,7 @@ echo "Run '$BINARY' to start, or '$BINARY --mcp' for MCP server mode."
 # Offer to install Claude Code skills
 echo ""
 printf "Would you like to install scripture study skills for Claude Code? [y/N] "
-read REPLY
+read REPLY < /dev/tty
 if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
   SKILLS_DIR="${HOME}/.claude/skills"
   SKILLS=(
@@ -166,7 +166,7 @@ if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
     done
     echo ""
     printf "Would you like to update these skills? [y/N] "
-    read REPLY
+    read REPLY < /dev/tty
     if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
       for update in "${updates_available[@]}"; do
         IFS=':' read -r skill local_ver remote_ver <<< "$update"

@@ -79,9 +79,11 @@ curl -sSL .../install.sh | zsh
 
 | Don't use | Use instead |
 |-----------|-------------|
-| `read -p "prompt" VAR` | `printf "prompt"; read VAR` |
+| `read -p "prompt" VAR` | `printf "prompt"; read VAR < /dev/tty` |
 | `[[ $X =~ ^[Yy]$ ]]` | `[ "$X" = "y" ] \|\| [ "$X" = "Y" ]` |
-| `[[ ":$PATH:" == *":$DIR:"* ]]` | `echo ":$PATH:" \| grep -q ":$DIR:"` |
+| `[[ ":$PATH:" == *":$DIR:"* ]]` | `echo ":$PATH:" \| grep -qF ":$DIR:"` |
+
+**Important:** When scripts are piped (e.g., `curl | zsh`), stdin comes from the pipe. Use `< /dev/tty` to read from the terminal instead.
 
 ### Safe Patterns (work in both)
 

@@ -44,9 +44,11 @@ The scriptures MCP server provides:
 All shell scripts must work in both **bash** and **zsh** since macOS users run install scripts with zsh.
 
 **Avoid:**
-- `read -p "prompt"` - use `printf "prompt"; read VAR` instead
+- `read -p "prompt"` - use `printf "prompt"; read VAR < /dev/tty` instead
 - `[[ $VAR =~ regex ]]` - use `[ "$VAR" = "value" ]` for simple checks
-- `[[ string == *glob* ]]` - use `echo | grep -q` instead
+- `[[ string == *glob* ]]` - use `echo | grep -qF` instead (F for literal matching)
+
+**Note:** Use `< /dev/tty` when reading user input in piped scripts (`curl | zsh`).
 
 **Safe to use** (work in both bash and zsh):
 - Arrays: `ARR=(a b c)`, `${ARR[@]}`
