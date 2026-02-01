@@ -78,7 +78,7 @@ rm -rf "$TEMP_DIR"
 echo ""
 echo "✓ Installed $BINARY to $INSTALL_DIR/$BINARY"
 echo ""
-if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
+if ! echo ":$PATH:" | grep -qF ":$INSTALL_DIR:"; then
   echo "Add to your PATH by adding this to ~/.bashrc or ~/.zshrc:"
   echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
   echo ""
