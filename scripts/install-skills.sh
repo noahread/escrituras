@@ -74,7 +74,7 @@ if [ ${#updates_available[@]} -gt 0 ]; then
   done
   echo ""
   printf "Would you like to update these skills? [y/N] "
-  read REPLY
+  read REPLY < /dev/tty
   if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
     for update in "${updates_available[@]}"; do
       IFS=':' read -r skill local_ver source_ver <<< "$update"
