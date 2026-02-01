@@ -5,10 +5,10 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 ## Features
 
 - **Browse Scriptures**: Navigate by volume, book, and chapter with verse selection
-- **Full-text Search**: Search across all 41,995+ verses with stemming (faith → faithful)
+- **Semantic Search**: Find verses by meaning, not just keywords (plus stemming: faith → faithful)
 - **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
 - **Multi-Provider AI**: Switch between AI providers seamlessly
-- **Context Building**: Add verses to your session context for AI-informed responses
+- **Saved Scriptures**: Save verses to a list and include them as context for AI questions
 - **Scripture References**: AI responses include clickable scripture references
 - **MCP Server**: Expose scriptures to AI assistants via Model Context Protocol
 
@@ -107,8 +107,8 @@ scriptures
 | `Tab` | Focus input (auto-enters input mode) |
 | `Esc` | Exit input mode |
 | `Enter` | Submit question |
-| `x` | Add selected verse to context |
-| `X` | View/manage context |
+| `x` | Save selected verse |
+| `X` | View/manage saved scriptures |
 | `M` | Change AI model |
 | `P` | Change AI provider |
 
@@ -117,7 +117,7 @@ scriptures
 | Key | Action |
 |-----|--------|
 | `v` | Start verse selection (in Browse mode) |
-| `v` | End selection and add range to context |
+| `v` | End selection and save verse range |
 | `Esc` | Cancel selection |
 
 ## Scripture Database
@@ -161,7 +161,7 @@ scriptures --mcp
 |------|-------------|
 | `lookup_verse` | Get a specific verse (e.g., "John 3:16", "1 Nephi 3:7") |
 | `lookup_chapter` | Get all verses in a chapter |
-| `search_scriptures` | Search with stemming (faith → faithful) |
+| `search_scriptures` | Semantic + keyword search with stemming |
 | `get_context` | Get surrounding verses for context |
 | `list_books` | List all books, optionally by volume |
 
