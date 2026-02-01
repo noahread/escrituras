@@ -16,11 +16,22 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 
 ### Quick Install (macOS/Linux)
 
+**macOS** (Catalina 10.15+):
+```bash
+curl -sSL https://raw.githubusercontent.com/noahread/escrituras/main/install.sh | zsh
+```
+
+**Linux**:
 ```bash
 curl -sSL https://raw.githubusercontent.com/noahread/escrituras/main/install.sh | bash
 ```
 
-This installs the `scriptures` binary to `~/.local/bin`. Make sure it's in your PATH.
+This installs the `scriptures` binary to `~/.local/bin`. Make sure it's in your PATH:
+
+```bash
+# Add to your shell config (~/.zshrc or ~/.bashrc) if not already present
+export PATH="$HOME/.local/bin:$PATH"
+```
 
 ### Manual Install
 
