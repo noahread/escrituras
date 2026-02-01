@@ -88,10 +88,12 @@ curl -sSL .../install.sh | zsh
 ### Safe Patterns (work in both)
 
 - Arrays: `ARR=(a b c)`, `for x in "${ARR[@]}"`
-- Arithmetic: `((count++))`, `$((x + y))`
+- Arithmetic: `((count++)) || true` (the `|| true` prevents `set -e` exit when count=0)
 - Here-strings: `read var <<< "$string"`
 - Functions with `local`
 - `[[ ]]` for non-regex conditionals
+
+**Note:** `((count++))` returns the OLD value. When count=0, it returns 0 (falsy), which causes `set -e` to exit. Always use `|| true` with arithmetic increments.
 
 ## Release Checklist
 
