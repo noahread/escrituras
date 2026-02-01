@@ -898,3 +898,84 @@ fn copy_to_clipboard(text: &str) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // UTF-8 cursor handling tests - prevent regression of panic bug
+    // when cursor is in the middle of a multi-byte character
+
+    #[test]
+    fn test_char_to_byte_index_ascii() {
+        let s = "hello";
+        assert_eq!(char_to_byte_index(s, 0), 0);
+        assert_eq!(char_to_byte_index(s, 1), 1);
+        assert_eq!(char_to_byte_index(s, 5), 5);
+    }
+
+    #[test]
+    fn test_char_to_byte_index_utf8_2byte() {
+        // é is 2 bytes in UTF-8
+        let s = "héllo";
+        assert_eq!(char_to_byte_index(s, 0), 0); // 'h' at byte 0
+        assert_eq!(char_to_byte_index(s, 1), 1); // 'é' at byte 1
+        assert_eq!(char_to_byte_index(s, 2), 3); // 'l' at byte 3 (after 2-byte é)
+        assert_eq!(char_to_byte_index(s, 3), 4); // 'l' at byte 4
+        assert_eq!(char_to_byte_index(s, 4), 5); // 'o' at byte 5
+    }
+
+    #[test]
+    fn test_char_to_byte_index_utf8_3byte() {
+        // Chinese character 中 is 3 bytes in UTF-8
+        let s = "a中b";
+        assert_eq!(char_to_byte_index(s, 0), 0); // 'a' at byte 0
+        assert_eq!(char_to_byte_index(s, 1), 1); // '中' at byte 1
+        assert_eq!(char_to_byte_index(s, 2), 4); // 'b' at byte 4 (after 3-byte 中)
+    }
+
+    #[test]
+    fn test_char_to_byte_index_emoji() {
+        // 🙏 is 4 bytes in UTF-8
+        let s = "a🙏b";
+        assert_eq!(char_to_byte_index(s, 0), 0); // 'a' at byte 0
+        assert_eq!(char_to_byte_index(s, 1), 1); // '🙏' at byte 1
+        assert_eq!(char_to_byte_index(s, 2), 5); // 'b' at byte 5 (after 4-byte emoji)
+    }
+
+    #[test]
+    fn test_char_to_byte_index_mixed_utf8() {
+        // Mix of different byte-lengths
+        let s = "hé中🙏x";
+        assert_eq!(char_to_byte_index(s, 0), 0);  // 'h' - 1 byte
+        assert_eq!(char_to_byte_index(s, 1), 1);  // 'é' - 2 bytes
+        assert_eq!(char_to_byte_index(s, 2), 3);  // '中' - 3 bytes
+        assert_eq!(char_to_byte_index(s, 3), 6);  // '🙏' - 4 bytes
+        assert_eq!(char_to_byte_index(s, 4), 10); // 'x' - 1 byte
+    }
+
+    #[test]
+    fn test_char_to_byte_index_past_end() {
+        let s = "abc";
+        // When char index exceeds string length, should return string byte length
+        assert_eq!(char_to_byte_index(s, 10), 3);
+        assert_eq!(char_to_byte_index(s, 100), 3);
+    }
+
+    #[test]
+    fn test_char_to_byte_index_empty_string() {
+        let s = "";
+        assert_eq!(char_to_byte_index(s, 0), 0);
+        assert_eq!(char_to_byte_index(s, 1), 0);
+    }
+
+    #[test]
+    fn test_char_to_byte_index_spanish_text() {
+        // Common in scripture study app: Spanish characters
+        let s = "¿Qué dice?";
+        assert_eq!(char_to_byte_index(s, 0), 0);  // '¿' - 2 bytes
+        assert_eq!(char_to_byte_index(s, 1), 2);  // 'Q' - 1 byte
+        assert_eq!(char_to_byte_index(s, 2), 3);  // 'u' - 1 byte
+        assert_eq!(char_to_byte_index(s, 3), 4);  // 'é' - 2 bytes
+    }
+}
