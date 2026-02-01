@@ -32,6 +32,7 @@ pub enum FocusPane {
     Navigation,
     Content,
     References,
+    Input,  // Query input box (AI mode only)
 }
 
 #[derive(Debug, Clone)]

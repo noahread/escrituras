@@ -120,7 +120,7 @@ fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                     }
                     FocusPane::Content
                 }
-                FocusPane::Content | FocusPane::References => FocusPane::Navigation,
+                FocusPane::Content | FocusPane::References | FocusPane::Input => FocusPane::Navigation,
             };
         }
 
@@ -431,9 +431,13 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
     }
 
     match key.code {
-        // Back to browse (or pop navigation stack if we jumped from a reference)
+        // Back to browse (or exit input, or pop navigation stack)
         KeyCode::Esc => {
-            if !app.pop_navigation_state() {
+            if app.focus == FocusPane::Input {
+                // Exit input mode, return to chat
+                app.input_mode = InputMode::Normal;
+                app.focus = FocusPane::Navigation;
+            } else if !app.pop_navigation_state() {
                 app.screen = Screen::Browse;
                 app.clear_selected_range(); // Clear range highlight when leaving AI mode
             }
@@ -441,28 +445,24 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
 
         // Go back in navigation stack
         KeyCode::Char('b') | KeyCode::Backspace => {
-            app.pop_navigation_state();
+            if app.focus != FocusPane::Input {
+                app.pop_navigation_state();
+            }
         }
 
-        // Edit query
-        KeyCode::Char('i') => {
-            app.input_mode = InputMode::Editing;
-        }
-
-        // Tab to switch focus between AI panel, content, and references
+        // Tab cycles: Navigation -> Input -> Content -> References -> Navigation
         KeyCode::Tab => {
             app.focus = match app.focus {
-                FocusPane::Navigation => {
+                FocusPane::Navigation => FocusPane::Input,
+                FocusPane::Input => {
+                    // Exit editing when leaving input
+                    app.input_mode = InputMode::Normal;
                     if app.show_context_panel {
-                        // In context mode, Tab goes Navigation -> Content (context list)
                         if app.context_state.selected().is_none() && !app.session_context.is_empty() {
                             app.context_state.select(Some(0));
                         }
-                    } else {
-                        // Normal mode: select first verse when entering content pane
-                        if app.selected_verse_idx.is_none() && !app.cached_verses.is_empty() {
-                            app.selected_verse_idx = Some(0);
-                        }
+                    } else if app.selected_verse_idx.is_none() && !app.cached_verses.is_empty() {
+                        app.selected_verse_idx = Some(0);
                     }
                     FocusPane::Content
                 }
@@ -475,6 +475,13 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                 }
                 FocusPane::References => FocusPane::Navigation,
             };
+
+            // Auto-enter editing mode when focusing input
+            if app.focus == FocusPane::Input {
+                app.input_mode = InputMode::Editing;
+                // Cursor at end of existing text
+                app.query_cursor = app.query_input.chars().count();
+            }
         }
 
         // Toggle context panel view
@@ -512,6 +519,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                     }
                 }
                 FocusPane::References => app.references_nav_down(),
+                FocusPane::Input => {} // Handled by editing mode
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
@@ -525,6 +533,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                     }
                 }
                 FocusPane::References => app.references_nav_up(),
+                FocusPane::Input => {} // Handled by editing mode
             }
         }
 

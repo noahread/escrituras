@@ -240,32 +240,46 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
             let mut hints = vec![
                 Span::styled(" Tab ", key_style),
                 Span::styled(" focus ", label_style),
-                Span::styled(" i ", key_style),
-                Span::styled(" type ", label_style),
-                Span::styled(" j/k ", key_style),
-                Span::styled(" scroll ", label_style),
             ];
-            if app.focus == FocusPane::Content {
-                if app.show_context_panel {
+
+            // Focus-specific hints
+            match app.focus {
+                FocusPane::Navigation => {
                     hints.extend(vec![
-                        Span::styled(" d ", key_style),
-                        Span::styled(" remove ", label_style),
-                    ]);
-                } else {
-                    hints.extend(vec![
-                        Span::styled(" c ", key_style),
-                        Span::styled(" copy ", label_style),
-                        Span::styled(" x ", key_style),
-                        Span::styled(" add ", label_style),
+                        Span::styled(" j/k ", key_style),
+                        Span::styled(" scroll ", label_style),
                     ]);
                 }
+                FocusPane::Content => {
+                    hints.extend(vec![
+                        Span::styled(" j/k ", key_style),
+                        Span::styled(" nav ", label_style),
+                    ]);
+                    if app.show_context_panel {
+                        hints.extend(vec![
+                            Span::styled(" d ", key_style),
+                            Span::styled(" remove ", label_style),
+                        ]);
+                    } else {
+                        hints.extend(vec![
+                            Span::styled(" c ", key_style),
+                            Span::styled(" copy ", label_style),
+                            Span::styled(" x ", key_style),
+                            Span::styled(" save ", label_style),
+                        ]);
+                    }
+                }
+                FocusPane::References => {
+                    hints.extend(vec![
+                        Span::styled(" j/k ", key_style),
+                        Span::styled(" nav ", label_style),
+                        Span::styled(" Enter ", key_style),
+                        Span::styled(" jump ", label_style),
+                    ]);
+                }
+                FocusPane::Input => {} // Handled by Editing mode
             }
-            if app.focus == FocusPane::References {
-                hints.extend(vec![
-                    Span::styled(" Enter ", key_style),
-                    Span::styled(" jump ", label_style),
-                ]);
-            }
+
             // Saved scriptures toggle hint
             hints.extend(vec![
                 Span::styled(" X ", key_style),
@@ -724,17 +738,18 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
         frame.render_stateful_widget(refs_list, refs_area, &mut app.references_state);
     }
 
-    // Query input at the bottom
-    let input_border_color = if app.input_mode == InputMode::Editing {
+    // Query input at the bottom - highlight when focused or editing
+    let input_focused = app.focus == FocusPane::Input;
+    let input_border_color = if input_focused || app.input_mode == InputMode::Editing {
         Color::Yellow
     } else {
-        ai_border_color
+        Color::DarkGray
     };
 
     let input_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(input_border_color))
-        .title(" Ask ");
+        .title(" Ask (Tab to focus) ");
 
     // Calculate visible portion of input with horizontal scrolling
     // Inner width = total width - 2 (for borders)
