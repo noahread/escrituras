@@ -1,0 +1,45 @@
+[package]
+name = "scripture-cli"
+version = "0.2.0"
+edition = "2021"
+description = "TUI for LDS scripture study with AI-powered insights"
+license = "MIT"
+repository = "https://github.com/noahread/escrituras"
+keywords = ["scriptures", "lds", "tui", "bible", "book-of-mormon"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "scriptures"
+path = "src/main.rs"
+
+[dependencies]
+# TUI Framework
+ratatui = "0.28"
+crossterm = { version = "0.27", features = ["event-stream"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for Ollama
+reqwest = { version = "0.11", features = ["json"] }
+
+# Utilities
+anyhow = "1.0"
+regex = "1.0"
+rust-stemmers = "1.2"
+dirs = "5.0"
+rusqlite = { version = "0.29", features = ["bundled"] }
+
+# Semantic search (local ONNX-based embeddings)
+# Use version 5.5.0 with image-models disabled to avoid zune-jpeg NEON issues
+fastembed = { version = "=5.5.0", default-features = false, features = ["ort-download-binaries", "hf-hub-native-tls"] }
+ndarray = "0.16"
+ndarray-npy = "0.9"
+
+[dev-dependencies]
+tempfile = "3.10"

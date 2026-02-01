@@ -1,0 +1,75 @@
+# Contributing to Scriptures CLI
+
+This document is for maintainers and AI agents working on this project.
+
+## Skills System
+
+Scripture study skills live in `skills/scriptures-*/SKILL.md`. These are installed to users' `~/.claude/skills/` directories.
+
+### Versioning
+
+**Every skill has a version in its YAML front matter:**
+
+```yaml
+---
+name: scriptures-scripture
+version: 1.0.0
+description: ...
+---
+```
+
+### When to Bump Versions
+
+**You MUST bump the version when modifying any SKILL.md file.**
+
+| Change Type | Version Bump | Example |
+|-------------|--------------|---------|
+| Bug fix, typo, clarification | Patch (0.0.X) | 1.0.0 → 1.0.1 |
+| New workflow step, output format change | Minor (0.X.0) | 1.0.1 → 1.1.0 |
+| Complete rewrite, breaking changes | Major (X.0.0) | 1.1.0 → 2.0.0 |
+
+### How It Works
+
+1. User runs `install.sh` or `scripts/install-skills.sh`
+2. Script extracts `version:` from local and remote SKILL.md files
+3. Compares using semver logic
+4. If remote > local, prompts user to update
+
+### Checklist When Modifying Skills
+
+- [ ] Made changes to `skills/scriptures-*/SKILL.md`
+- [ ] Bumped `version:` field in YAML front matter
+- [ ] Changes will be available after next release
+
+### Current Skills
+
+| Skill | File |
+|-------|------|
+| `/scriptures-scripture` | `skills/scriptures-scripture/SKILL.md` |
+| `/scriptures-topical` | `skills/scriptures-topical/SKILL.md` |
+| `/scriptures-cross-ref` | `skills/scriptures-cross-ref/SKILL.md` |
+| `/scriptures-compare` | `skills/scriptures-compare/SKILL.md` |
+| `/scriptures-ponder` | `skills/scriptures-ponder/SKILL.md` |
+| `/scriptures-journal` | `skills/scriptures-journal/SKILL.md` |
+| `/scriptures-memorize` | `skills/scriptures-memorize/SKILL.md` |
+| `/scriptures-daily` | `skills/scriptures-daily/SKILL.md` |
+
+## MCP Server
+
+The MCP server (`src/mcp.rs`) exposes tools that skills use:
+
+- `mcp__scriptures__lookup_verse` - Get verse by reference
+- `mcp__scriptures__lookup_chapter` - Get full chapter
+- `mcp__scriptures__search_scriptures` - Keyword + semantic search
+- `mcp__scriptures__get_context` - Get surrounding verses
+- `mcp__scriptures__list_books` - List books/volumes
+
+If you add/modify MCP tools, update the skill documentation to use them.
+
+## Release Checklist
+
+- [ ] Bump Cargo.toml version
+- [ ] Bump any modified skill versions
+- [ ] Tag release: `git tag v0.X.0 && git push --tags`
+- [ ] GitHub Actions builds and uploads binaries
+- [ ] Users get updates via `install.sh`
