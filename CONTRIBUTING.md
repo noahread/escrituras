@@ -66,10 +66,36 @@ The MCP server (`src/mcp.rs`) exposes tools that skills use:
 
 If you add/modify MCP tools, update the skill documentation to use them.
 
+## Shell Script Guidelines
+
+All shell scripts (`install.sh`, `scripts/*.sh`) must work in both **bash** and **zsh**.
+
+macOS Catalina+ uses zsh as the default shell, so users run:
+```bash
+curl -sSL .../install.sh | zsh
+```
+
+### Patterns to Avoid
+
+| Don't use | Use instead |
+|-----------|-------------|
+| `read -p "prompt" VAR` | `printf "prompt"; read VAR` |
+| `[[ $X =~ ^[Yy]$ ]]` | `[ "$X" = "y" ] \|\| [ "$X" = "Y" ]` |
+| `[[ ":$PATH:" == *":$DIR:"* ]]` | `echo ":$PATH:" \| grep -q ":$DIR:"` |
+
+### Safe Patterns (work in both)
+
+- Arrays: `ARR=(a b c)`, `for x in "${ARR[@]}"`
+- Arithmetic: `((count++))`, `$((x + y))`
+- Here-strings: `read var <<< "$string"`
+- Functions with `local`
+- `[[ ]]` for non-regex conditionals
+
 ## Release Checklist
 
 - [ ] Bump Cargo.toml version
 - [ ] Bump any modified skill versions
+- [ ] Verify shell scripts work with both bash and zsh
 - [ ] Tag release: `git tag v0.X.0 && git push --tags`
 - [ ] GitHub Actions builds and uploads binaries
 - [ ] Users get updates via `install.sh`

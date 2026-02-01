@@ -39,6 +39,22 @@ The scriptures MCP server provides:
 - `get_context` - Get surrounding verses
 - `list_books` - List books/volumes
 
+## Shell Script Compatibility
+
+All shell scripts must work in both **bash** and **zsh** since macOS users run install scripts with zsh.
+
+**Avoid:**
+- `read -p "prompt"` - use `printf "prompt"; read VAR` instead
+- `[[ $VAR =~ regex ]]` - use `[ "$VAR" = "value" ]` for simple checks
+- `[[ string == *glob* ]]` - use `echo | grep -q` instead
+
+**Safe to use** (work in both bash and zsh):
+- Arrays: `ARR=(a b c)`, `${ARR[@]}`
+- Arithmetic: `((i++))`, `$((x + y))`
+- Here-strings: `<<< "$var"`
+- `local` keyword
+- `[[ ]]` for non-regex conditionals
+
 ## Testing
 
 ```bash
