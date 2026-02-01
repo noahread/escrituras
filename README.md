@@ -13,12 +13,25 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 
 ## Installation
 
-```bash
-# Build the release binary
-cargo build --release
+### Quick Install (macOS/Linux)
 
-# Run the app
-./target/release/escrituras
+```bash
+curl -sSL https://raw.githubusercontent.com/noahread/escrituras/main/install.sh | bash
+```
+
+This installs the `scriptures` binary to `~/.local/bin`. Make sure it's in your PATH.
+
+### Manual Install
+
+Download the latest release from [GitHub Releases](https://github.com/noahread/escrituras/releases) and extract it to a directory in your PATH.
+
+### From Source
+
+```bash
+git clone https://github.com/noahread/escrituras
+cd escrituras
+cargo build --release
+cp target/release/scriptures ~/.local/bin/
 ```
 
 ## AI Provider Setup
@@ -53,7 +66,7 @@ export OPENAI_API_KEY="your-api-key"
 
 Launch the app:
 ```bash
-./target/release/escrituras
+scriptures
 ```
 
 ### Modes
@@ -125,12 +138,11 @@ Environment variables take precedence over config file values.
 ## Building from Source
 
 ```bash
-# Clone and build
-git clone <repo-url>
+git clone https://github.com/noahread/escrituras
 cd escrituras
 cargo build --release
 
-# Binary will be at ./target/release/escrituras
+# Binary will be at ./target/release/scriptures
 ```
 
 ## License

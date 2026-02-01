@@ -2,10 +2,14 @@
 name = "scripture-cli"
 version = "0.2.0"
 edition = "2021"
-description = "TUI for exploring LDS scriptures and querying with Ollama"
+description = "TUI for LDS scripture study with AI-powered insights"
+license = "MIT"
+repository = "https://github.com/noahread/escrituras"
+keywords = ["scriptures", "lds", "tui", "bible", "book-of-mormon"]
+categories = ["command-line-utilities"]
 
 [[bin]]
-name = "escrituras"
+name = "scriptures"
 path = "src/main.rs"
 
 [dependencies]
