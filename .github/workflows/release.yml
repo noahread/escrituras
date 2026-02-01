@@ -38,9 +38,10 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p package
+          mkdir -p package/data
           cp target/${{ matrix.target }}/release/scriptures package/
           cp -r lds-scriptures-2020.12.08 package/
+          cp data/scripture_embeddings.npy data/scripture_metadata.json package/data/
           cd package && tar -czvf ../${{ matrix.name }}.tar.gz .
 
       - name: Upload artifact
@@ -49,26 +50,8 @@ jobs:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}.tar.gz
 
-  package-embeddings:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Package embeddings
-        run: |
-          if [ -d "data" ] && [ -f "data/scripture_embeddings.npy" ]; then
-            tar -czvf embeddings.tar.gz -C data scripture_embeddings.npy scripture_metadata.json
-          fi
-
-      - name: Upload embeddings artifact
-        if: ${{ hashFiles('embeddings.tar.gz') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: embeddings
-          path: embeddings.tar.gz
-
   release:
-    needs: [build, package-embeddings]
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +66,4 @@ jobs:
             scriptures-macos-x86_64/scriptures-macos-x86_64.tar.gz
             scriptures-macos-aarch64/scriptures-macos-aarch64.tar.gz
             scriptures-linux-x86_64/scriptures-linux-x86_64.tar.gz
-            embeddings/embeddings.tar.gz
           generate_release_notes: true
-          fail_on_unmatched_files: false

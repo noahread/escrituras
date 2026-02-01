@@ -60,22 +60,14 @@ if [ -d "$TEMP_DIR/lds-scriptures-2020.12.08" ]; then
   mv "$TEMP_DIR/lds-scriptures-2020.12.08" "$CONFIG_DIR/"
 fi
 
-rm -rf "$TEMP_DIR"
-
-# Download embeddings for semantic search
-EMBEDDINGS_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*embeddings.tar.gz" | cut -d '"' -f 4)
-
-if [ -n "$EMBEDDINGS_URL" ]; then
-  echo "Downloading semantic search embeddings (~45MB)..."
+# Install embeddings for semantic search
+if [ -d "$TEMP_DIR/data" ]; then
+  echo "Installing semantic search data to $DATA_DIR..."
   mkdir -p "$DATA_DIR"
-  if curl -sfL "$EMBEDDINGS_URL" | tar -xz -C "$DATA_DIR"; then
-    echo "Installed embeddings to $DATA_DIR"
-  else
-    echo "Warning: Failed to download embeddings. Semantic search will be disabled."
-  fi
-else
-  echo "Note: Embeddings not found in release. Semantic search will be disabled."
+  mv "$TEMP_DIR/data"/* "$DATA_DIR/"
 fi
+
+rm -rf "$TEMP_DIR"
 
 echo ""
 echo "✓ Installed $BINARY to $INSTALL_DIR/$BINARY"
