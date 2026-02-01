@@ -159,7 +159,23 @@ pub struct App {
 impl App {
     pub async fn new() -> anyhow::Result<Self> {
         let mut scripture_db = ScriptureDb::new();
-        scripture_db.load_from_json("lds-scriptures-2020.12.08/json/lds-scriptures-json.txt").await?;
+
+        // Try local path first, then config directory
+        let local_path = "lds-scriptures-2020.12.08/json/lds-scriptures-json.txt";
+        let config_path = dirs::config_dir()
+            .map(|p| p.join("escrituras/lds-scriptures-2020.12.08/json/lds-scriptures-json.txt"));
+
+        if std::path::Path::new(local_path).exists() {
+            scripture_db.load_from_json(local_path).await?;
+        } else if let Some(ref cfg_path) = config_path {
+            if cfg_path.exists() {
+                scripture_db.load_from_json(cfg_path.to_str().unwrap()).await?;
+            } else {
+                anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
+            }
+        } else {
+            anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
+        }
 
         let ollama = OllamaClient::new("http://localhost:11434");
 

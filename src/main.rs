@@ -29,9 +29,23 @@ async fn main() -> Result<()> {
 }
 
 async fn run_mcp_server() -> Result<()> {
-    // Load scripture database (same path as TUI mode)
+    // Load scripture database - try local path first, then config directory
     let mut scripture_db = scripture::ScriptureDb::new();
-    scripture_db.load_from_json("lds-scriptures-2020.12.08/json/lds-scriptures-json.txt").await?;
+    let local_scripture_path = "lds-scriptures-2020.12.08/json/lds-scriptures-json.txt";
+    let config_scripture_path = dirs::config_dir()
+        .map(|p| p.join("escrituras/lds-scriptures-2020.12.08/json/lds-scriptures-json.txt"));
+
+    if std::path::Path::new(local_scripture_path).exists() {
+        scripture_db.load_from_json(local_scripture_path).await?;
+    } else if let Some(ref cfg_path) = config_scripture_path {
+        if cfg_path.exists() {
+            scripture_db.load_from_json(cfg_path.to_str().unwrap()).await?;
+        } else {
+            anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
+        }
+    } else {
+        anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
+    }
 
     // Load embeddings if available (for semantic search)
     // Try local data/ directory first, then ~/.config/escrituras/data/

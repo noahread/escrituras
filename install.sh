@@ -40,15 +40,27 @@ if [ -z "$BINARY_URL" ]; then
 fi
 
 echo "Downloading $BINARY for $OS-$ARCH..."
-curl -sfL "$BINARY_URL" | tar -xz -C /tmp || {
+TEMP_DIR=$(mktemp -d)
+curl -sfL "$BINARY_URL" | tar -xz -C "$TEMP_DIR" || {
   echo "Error: Failed to download or extract binary"
+  rm -rf "$TEMP_DIR"
   exit 1
 }
 
 echo "Installing binary to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-mv "/tmp/$BINARY" "$INSTALL_DIR/"
+mv "$TEMP_DIR/$BINARY" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/$BINARY"
+
+# Install scripture data
+if [ -d "$TEMP_DIR/lds-scriptures-2020.12.08" ]; then
+  echo "Installing scripture data to $CONFIG_DIR..."
+  mkdir -p "$CONFIG_DIR"
+  rm -rf "$CONFIG_DIR/lds-scriptures-2020.12.08"
+  mv "$TEMP_DIR/lds-scriptures-2020.12.08" "$CONFIG_DIR/"
+fi
+
+rm -rf "$TEMP_DIR"
 
 # Download embeddings for semantic search
 EMBEDDINGS_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*embeddings.tar.gz" | cut -d '"' -f 4)
