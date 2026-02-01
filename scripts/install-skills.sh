@@ -73,9 +73,9 @@ if [ ${#updates_available[@]} -gt 0 ]; then
     echo "  /${skill}: v${local_ver} → v${source_ver}"
   done
   echo ""
-  read -p "Would you like to update these skills? [y/N] " -n 1 -r
-  echo ""
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  printf "Would you like to update these skills? [y/N] "
+  read REPLY
+  if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
     for update in "${updates_available[@]}"; do
       IFS=':' read -r skill local_ver source_ver <<< "$update"
       SOURCE_FILE="${SKILLS_SOURCE}/${skill}/SKILL.md"
