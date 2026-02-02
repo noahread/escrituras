@@ -132,6 +132,8 @@ Includes the complete LDS Standard Works:
 
 **Total: 41,995+ verses**
 
+Scripture data provided by the [LDS Documentation Project](https://scriptures.nephi.org/) and released into the public domain.
+
 ## Configuration
 
 Settings are stored in `~/.config/escrituras/config.json`:
