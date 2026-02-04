@@ -1,68 +1,86 @@
-# Scriptures CLI - Agent Instructions
+# CLAUDE.md
 
-## Important: Skill Versioning
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-When modifying any skill file in `skills/scriptures-*/SKILL.md`:
+## Build & Test Commands
 
-1. **Always bump the `version:` field** in the YAML front matter
-2. Use semver: patch for fixes, minor for features, major for breaking changes
-3. See `CONTRIBUTING.md` for full versioning guidelines
+```bash
+# Build and run
+cargo build
+cargo run                    # TUI mode
+cargo run -- --mcp           # MCP server mode
 
-## Project Structure
+# Tests
+cargo test                   # All tests
+cargo test test_name         # Single test
+cargo test -- --nocapture    # With output
 
+# Release build
+cargo build --release        # Binary at target/release/scriptures
+
+# Test MCP server manually
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run -- --mcp
 ```
-src/
-  main.rs      - Entry point, --mcp flag handling
-  mcp.rs       - MCP server implementation
-  scripture.rs - Scripture database and search
-  embeddings.rs - Semantic search with local ONNX model
-  app.rs       - TUI application state
-  handler.rs   - TUI event handling
-  ui.rs        - TUI rendering
 
-skills/
-  scriptures-*/SKILL.md - Claude Code skills (versioned)
+## Architecture
 
-scripts/
-  install-skills.sh     - Local skill installer with version checking
-  generate_embeddings.py - Python script to regenerate embeddings
+**Two execution modes from a single binary:**
+- `scriptures` → TUI mode (ratatui-based interactive interface)
+- `scriptures --mcp` → MCP server mode (JSON-RPC over stdio for AI assistants)
 
-install.sh - Main installer (binary + embeddings + skills)
-```
+**Core data flow:**
+1. `scripture.rs` - Loads JSON scripture data, builds indexes, provides search with stemming
+2. `embeddings.rs` - Loads precomputed embeddings (.npy), runs local ONNX model (BGE-small-en-v1.5) for semantic search
+3. Combined results: MCP/TUI search merges semantic + keyword results, deduplicating by verse title
+
+**TUI modules:**
+- `app.rs` - Application state (screens, navigation, chat history, providers)
+- `handler.rs` - Keyboard/event handling
+- `ui.rs` - Ratatui rendering
+- `tui.rs` - Terminal setup/teardown
+
+**AI providers** (`claude.rs`, `openai.rs`, `ollama.rs`):
+- All implement streaming responses
+- Config stored at `~/.config/escrituras/config.json`
+
+## Skill Versioning
+
+**Always bump the version in `skills/scriptures-*/SKILL.md` when modifying skills.**
+
+| Change | Bump |
+|--------|------|
+| Bug fix, typo | Patch (0.0.X) |
+| New step, format change | Minor (0.X.0) |
+| Breaking change | Major (X.0.0) |
+
+## Shell Script Compatibility
+
+Scripts must work in both **bash** and **zsh** (macOS default).
+
+**Avoid:**
+- `read -p "prompt"` → use `printf "prompt"; read VAR < /dev/tty`
+- `[[ $VAR =~ regex ]]` → use `[ "$VAR" = "y" ]` for simple checks
+- `[[ string == *glob* ]]` → use `echo | grep -qF` instead
+
+**Critical:** `((count++))` returns 0 when count=0, causing `set -e` exit. Use `((count++)) || true`.
 
 ## MCP Tools
 
-The scriptures MCP server provides:
-- `lookup_verse` - Get verse by reference
-- `lookup_chapter` - Get full chapter
+The server exposes 5 tools via `src/mcp.rs`:
+- `lookup_verse` - Get verse by reference (e.g., "John 3:16", "1 Nephi 3:7")
+- `lookup_chapter` - Get all verses in a chapter
 - `search_scriptures` - Combined semantic + keyword search
 - `get_context` - Get surrounding verses
 - `list_books` - List books/volumes
 
-## Shell Script Compatibility
+## Data Files
 
-All shell scripts must work in both **bash** and **zsh** since macOS users run install scripts with zsh.
+Scripture data and embeddings are loaded from:
+1. Local `lds-scriptures-2020.12.08/` and `data/` (development)
+2. `~/.config/escrituras/` (installed via `install.sh`)
 
-**Avoid:**
-- `read -p "prompt"` - use `printf "prompt"; read VAR < /dev/tty` instead
-- `[[ $VAR =~ regex ]]` - use `[ "$VAR" = "value" ]` for simple checks
-- `[[ string == *glob* ]]` - use `echo | grep -qF` instead (F for literal matching)
-
-**Note:** Use `< /dev/tty` when reading user input in piped scripts (`curl | zsh`).
-
-**Safe to use** (work in both bash and zsh):
-- Arrays: `ARR=(a b c)`, `${ARR[@]}`
-- Arithmetic: `((i++))`, `$((x + y))`
-- Here-strings: `<<< "$var"`
-- `local` keyword
-- `[[ ]]` for non-regex conditionals
-
-## Testing
-
+To regenerate embeddings:
 ```bash
-# Test MCP server
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run -- --mcp
-
-# Run tests
-cargo test
+pip install fastembed numpy
+python scripts/generate_embeddings.py
 ```
