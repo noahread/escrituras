@@ -876,20 +876,154 @@ impl App {
 
     pub fn select_next_verse(&mut self) {
         let len = self.cached_verses.len();
-        if len > 0 {
-            let current = self.selected_verse_idx.unwrap_or(0);
-            self.selected_verse_idx = Some((current + 1).min(len - 1));
+        if len == 0 {
+            return;
+        }
+
+        let current = self.selected_verse_idx.unwrap_or(0);
+
+        // If not at the last verse of the chapter, just move to next verse
+        if current < len - 1 {
+            self.selected_verse_idx = Some(current + 1);
+            self.scroll_to_selected_verse();
+            return;
+        }
+
+        // At the last verse - try to navigate to next chapter
+        if self.navigate_to_next_chapter() {
+            self.selected_verse_idx = Some(0);
             self.scroll_to_selected_verse();
         }
+        // If at volume boundary, stay at last verse (do nothing)
     }
 
     pub fn select_prev_verse(&mut self) {
-        if let Some(current) = self.selected_verse_idx {
-            self.selected_verse_idx = Some(current.saturating_sub(1));
-            self.scroll_to_selected_verse();
-        } else if !self.cached_verses.is_empty() {
-            self.selected_verse_idx = Some(0);
+        if self.cached_verses.is_empty() {
+            return;
         }
+
+        let current = self.selected_verse_idx.unwrap_or(0);
+
+        // If not at the first verse of the chapter, just move to previous verse
+        if current > 0 {
+            self.selected_verse_idx = Some(current - 1);
+            self.scroll_to_selected_verse();
+            return;
+        }
+
+        // At the first verse - try to navigate to previous chapter
+        if self.navigate_to_prev_chapter() {
+            // Select the last verse of the previous chapter
+            let last_idx = self.cached_verses.len().saturating_sub(1);
+            self.selected_verse_idx = Some(last_idx);
+            self.scroll_to_selected_verse();
+        }
+        // If at volume boundary, stay at first verse (do nothing)
+    }
+
+    /// Navigate to the next chapter within the current volume.
+    /// Returns true if navigation was successful, false if at volume boundary.
+    fn navigate_to_next_chapter(&mut self) -> bool {
+        let volume = match self.selected_volume() {
+            Some(v) => v.clone(),
+            None => return false,
+        };
+
+        // We just need to verify a book is selected; actual book name not used
+        if self.selected_book().is_none() {
+            return false;
+        }
+
+        let current_chapter_idx = match self.chapter_state.selected() {
+            Some(idx) => idx,
+            None => return false,
+        };
+
+        // Try to go to next chapter in current book
+        if current_chapter_idx + 1 < self.cached_chapters.len() {
+            self.chapter_state.select(Some(current_chapter_idx + 1));
+            self.load_verses();
+            return true;
+        }
+
+        // At last chapter of book - try to go to next book in volume
+        let books = self.scripture_db.get_books_for_volume(&volume);
+        let current_book_idx = match self.book_state.selected() {
+            Some(idx) => idx,
+            None => return false,
+        };
+
+        if current_book_idx + 1 < books.len() {
+            // Move to next book
+            let next_book_idx = current_book_idx + 1;
+            self.book_state.select(Some(next_book_idx));
+            self.cached_books = books;
+
+            // Load chapters for the new book
+            if let Some(next_book) = self.cached_books.get(next_book_idx) {
+                self.cached_chapters = self.scripture_db.get_chapters_for_book(next_book);
+                if !self.cached_chapters.is_empty() {
+                    self.chapter_state.select(Some(0));
+                    self.chapter_scroll = 0;
+                    self.load_verses();
+                    return true;
+                }
+            }
+        }
+
+        // At last chapter of last book in volume - can't go further
+        false
+    }
+
+    /// Navigate to the previous chapter within the current volume.
+    /// Returns true if navigation was successful, false if at volume boundary.
+    fn navigate_to_prev_chapter(&mut self) -> bool {
+        let volume = match self.selected_volume() {
+            Some(v) => v.clone(),
+            None => return false,
+        };
+
+        let current_chapter_idx = match self.chapter_state.selected() {
+            Some(idx) => idx,
+            None => return false,
+        };
+
+        // Try to go to previous chapter in current book
+        if current_chapter_idx > 0 {
+            self.chapter_state.select(Some(current_chapter_idx - 1));
+            self.load_verses();
+            return true;
+        }
+
+        // At first chapter of book - try to go to previous book in volume
+        let books = self.scripture_db.get_books_for_volume(&volume);
+        let current_book_idx = match self.book_state.selected() {
+            Some(idx) => idx,
+            None => return false,
+        };
+
+        if current_book_idx > 0 {
+            // Move to previous book
+            let prev_book_idx = current_book_idx - 1;
+            self.book_state.select(Some(prev_book_idx));
+            self.cached_books = books;
+
+            // Load chapters for the previous book
+            if let Some(prev_book) = self.cached_books.get(prev_book_idx) {
+                self.cached_chapters = self.scripture_db.get_chapters_for_book(prev_book);
+                if !self.cached_chapters.is_empty() {
+                    // Select the last chapter
+                    let last_chapter_idx = self.cached_chapters.len() - 1;
+                    self.chapter_state.select(Some(last_chapter_idx));
+                    self.chapter_scroll = last_chapter_idx;
+                    self.load_verses();
+                    return true;
+                }
+            }
+        }
+
+        // At first chapter of first book in volume - can't go further
+        false
     }
 
     /// Clear the selected range (called when leaving AI mode or jumping to different reference)
