@@ -576,6 +576,13 @@ impl App {
             let verses = self.scripture_db.get_verses_for_chapter(&book, chapter);
             self.cached_verses = verses.into_iter().cloned().collect();
             self.content_scroll = 0;
+            self.verse_scroll = 0;
+            // Reset selected verse - caller should set it appropriately
+            self.selected_verse_idx = if self.cached_verses.is_empty() {
+                None
+            } else {
+                Some(0)
+            };
 
             // Track browsed chapter (lightweight, not individual verses)
             if !self.browsed_chapters.iter().any(|(b, c)| b == &book && *c == chapter) {
