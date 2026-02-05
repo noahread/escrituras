@@ -507,8 +507,9 @@ impl App {
             }
             NavLevel::Chapter => {
                 // For single-book volumes, go back to Volume level (skip Book level)
-                let is_single_book = self.selected_book()
-                    .map(|b| self.is_single_book_volume(b))
+                // Use selected_volume() since is_single_book_volume expects a volume name
+                let is_single_book = self.selected_volume()
+                    .map(|v| self.is_single_book_volume(&v))
                     .unwrap_or(false);
 
                 if is_single_book {
@@ -853,11 +854,23 @@ impl App {
     // Verse selection methods
 
     /// Ensure a verse is selected when focusing on content pane
-    /// Selects the topmost visible verse if nothing is selected
+    /// Selects the topmost visible verse if nothing is selected or if selection is out of bounds
     pub fn ensure_verse_selected(&mut self) {
-        if self.selected_verse_idx.is_none() && !self.cached_verses.is_empty() {
+        if self.cached_verses.is_empty() {
+            self.selected_verse_idx = None;
+            return;
+        }
+
+        let max_idx = self.cached_verses.len() - 1;
+
+        // Check if selection is missing or out of bounds
+        let needs_reset = self.selected_verse_idx
+            .map(|idx| idx > max_idx)
+            .unwrap_or(true);
+
+        if needs_reset {
             // Select the topmost visible verse (based on current scroll position)
-            self.selected_verse_idx = Some(self.verse_scroll.min(self.cached_verses.len() - 1));
+            self.selected_verse_idx = Some(self.verse_scroll.min(max_idx));
         }
     }
 
