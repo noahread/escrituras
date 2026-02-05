@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use crate::app::{App, ChatMessage, ChatRole, FocusPane, InputMode, Screen, SearchFocus};
+use crate::app::{App, ChatMessage, ChatRole, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection, SearchFocus};
 use crate::tui::AppEvent;
 use crate::provider::Provider;
 use crate::claude::ClaudeClient;
@@ -48,6 +48,7 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<()> {
         Screen::Browse => handle_browse_normal(app, key).await?,
         Screen::Search => handle_search_normal(app, key).await,
         Screen::Query => handle_query_normal(app, key).await?,
+        Screen::Focus => handle_focus_normal(app, key),
     }
     Ok(())
 }
@@ -81,7 +82,9 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.nav_first();
             } else {
                 app.selected_verse_idx = Some(0);
-                app.content_scroll = 0;
+                app.line_scroll = 0;
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Up;
             }
         }
         KeyCode::Char('G') => {
@@ -90,7 +93,9 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             } else {
                 let last = app.cached_verses.len().saturating_sub(1);
                 app.selected_verse_idx = Some(last);
-                app.content_scroll = app.total_content_lines.saturating_sub(app.content_height);
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Down;
+                // line_scroll will be calculated by render_content
             }
         }
 
@@ -114,10 +119,8 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 FocusPane::Navigation => {
-                    // Select first verse when entering content pane
-                    if app.selected_verse_idx.is_none() && !app.cached_verses.is_empty() {
-                        app.selected_verse_idx = Some(0);
-                    }
+                    // Select topmost visible verse when entering content pane
+                    app.ensure_verse_selected();
                     FocusPane::Content
                 }
                 FocusPane::Content | FocusPane::References | FocusPane::Input => FocusPane::Navigation,
@@ -170,6 +173,12 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                 }
             }
         }
+        // Enter focus mode
+        KeyCode::Char('f') => {
+            if app.focus == FocusPane::Content && app.get_selected_verse().is_some() {
+                app.enter_focus_mode();
+            }
+        }
 
         // Screen switching
         KeyCode::Char('/') => {
@@ -196,7 +205,7 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
             app.search_focus = SearchFocus::Results;
         }
 
-        // Tab cycles focus: Results -> Preview -> Results
+        // Tab cycles focus: Results -> Preview -> Input -> Results
         KeyCode::Tab => {
             app.search_focus = match app.search_focus {
                 SearchFocus::Results => {
@@ -208,7 +217,16 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
                     }
                     SearchFocus::Preview
                 }
-                SearchFocus::Preview => SearchFocus::Results,
+                SearchFocus::Preview => {
+                    // Auto-enter editing mode when tabbing to input
+                    app.input_mode = InputMode::Editing;
+                    SearchFocus::Input
+                }
+                SearchFocus::Input => {
+                    // Exit editing mode when leaving input
+                    app.input_mode = InputMode::Normal;
+                    SearchFocus::Results
+                }
             };
         }
 
@@ -266,6 +284,15 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
                         let text = format!("{}\n{}", scripture.verse_title, scripture.scripture_text);
                         copy_to_clipboard(&text);
                     }
+                }
+            }
+        }
+
+        // Enter focus mode (when Preview focused)
+        KeyCode::Char('f') => {
+            if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
+                if app.search_state.selected().is_some() {
+                    app.enter_focus_mode();
                 }
             }
         }
@@ -461,8 +488,9 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                         if app.context_state.selected().is_none() && !app.session_context.is_empty() {
                             app.context_state.select(Some(0));
                         }
-                    } else if app.selected_verse_idx.is_none() && !app.cached_verses.is_empty() {
-                        app.selected_verse_idx = Some(0);
+                    } else {
+                        // Select topmost visible verse when entering content pane
+                        app.ensure_verse_selected();
                     }
                     FocusPane::Content
                 }
@@ -560,7 +588,9 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('g') => {
             if app.focus == FocusPane::Content {
                 app.selected_verse_idx = Some(0);
-                app.content_scroll = 0;
+                app.line_scroll = 0;
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Up;
             } else {
                 app.query_scroll = 0;
             }
@@ -569,7 +599,8 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             if app.focus == FocusPane::Content {
                 let last = app.cached_verses.len().saturating_sub(1);
                 app.selected_verse_idx = Some(last);
-                app.content_scroll = app.total_content_lines.saturating_sub(app.content_height);
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Down;
             }
         }
 
@@ -589,6 +620,13 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                         app.session_context.push(verse);
                     }
                 }
+            }
+        }
+
+        // Enter focus mode (when Content is focused)
+        KeyCode::Char('f') => {
+            if app.focus == FocusPane::Content && app.get_selected_verse().is_some() {
+                app.enter_focus_mode();
             }
         }
 
@@ -629,6 +667,146 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
+fn handle_focus_normal(app: &mut App, key: KeyEvent) {
+    // Check if in memorize sub-mode for special handling
+    let in_memorize = app.focus_state
+        .as_ref()
+        .map(|s| s.sub_mode == FocusSubMode::Memorize)
+        .unwrap_or(false);
+
+    let is_flashcard = app.focus_state
+        .as_ref()
+        .map(|s| s.memorize_mode == MemorizeMode::Flashcard)
+        .unwrap_or(false);
+
+    let flashcard_phase = app.focus_state
+        .as_ref()
+        .map(|s| s.flashcard_phase)
+        .unwrap_or(FlashcardPhase::Hidden);
+
+    // Handle flashcard typing mode input
+    if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Typing {
+        match key.code {
+            KeyCode::Esc => {
+                app.focus_cancel_typing();
+            }
+            KeyCode::Enter => {
+                app.focus_submit_typing();
+            }
+            KeyCode::Backspace => {
+                if let Some(ref mut state) = app.focus_state {
+                    if state.flashcard_input_cursor > 0 {
+                        state.flashcard_input_cursor -= 1;
+                        let byte_pos = char_to_byte_index(&state.flashcard_input, state.flashcard_input_cursor);
+                        state.flashcard_input.remove(byte_pos);
+                    }
+                }
+            }
+            KeyCode::Left => {
+                if let Some(ref mut state) = app.focus_state {
+                    state.flashcard_input_cursor = state.flashcard_input_cursor.saturating_sub(1);
+                }
+            }
+            KeyCode::Right => {
+                if let Some(ref mut state) = app.focus_state {
+                    let char_count = state.flashcard_input.chars().count();
+                    state.flashcard_input_cursor = (state.flashcard_input_cursor + 1).min(char_count);
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(ref mut state) = app.focus_state {
+                    let byte_pos = char_to_byte_index(&state.flashcard_input, state.flashcard_input_cursor);
+                    state.flashcard_input.insert(byte_pos, c);
+                    state.flashcard_input_cursor += 1;
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    match key.code {
+        // Exit Focus Mode
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.exit_focus_mode();
+        }
+
+        // Navigation (next/previous verse)
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('n') => {
+            app.focus_next_verse();
+        }
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::Char('p') => {
+            app.focus_prev_verse();
+        }
+
+        // Copy scripture
+        KeyCode::Char('c') => {
+            if let Some(verse) = app.get_focus_verse() {
+                let text = format!("{}\n{}", verse.verse_title, verse.scripture_text);
+                copy_to_clipboard(&text);
+            }
+        }
+
+        // Save to context
+        KeyCode::Char('x') => {
+            if let Some(verse) = app.get_focus_verse().cloned() {
+                if !app.session_context.iter().any(|v| v.verse_title == verse.verse_title) {
+                    app.session_context.push(verse);
+                }
+            }
+        }
+
+        // Toggle memorization mode
+        KeyCode::Char('m') => {
+            app.focus_toggle_memorize();
+        }
+
+        // Memorization-specific keys
+        KeyCode::Char('M') if in_memorize => {
+            // Cycle memorization type (Progressive/Flashcard)
+            app.focus_cycle_memorize_mode();
+        }
+        KeyCode::Char('+') | KeyCode::Char('=') if in_memorize => {
+            // Increase difficulty
+            app.focus_increase_difficulty();
+        }
+        KeyCode::Char('-') if in_memorize => {
+            // Decrease difficulty
+            app.focus_decrease_difficulty();
+        }
+
+        // Flashcard-specific keys
+        KeyCode::Char('t') if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Hidden => {
+            // Start typing mode
+            app.focus_start_typing();
+        }
+        KeyCode::Char('r') if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Revealed => {
+            // Reset flashcard to hidden
+            app.focus_reset_flashcard();
+        }
+        KeyCode::Enter | KeyCode::Char(' ') if in_memorize => {
+            // Reveal answer (flashcard) or advance difficulty (progressive)
+            if is_flashcard {
+                match flashcard_phase {
+                    FlashcardPhase::Hidden => {
+                        app.focus_reveal_flashcard();
+                    }
+                    FlashcardPhase::Revealed => {
+                        // Already revealed, could navigate to next or reset
+                    }
+                    FlashcardPhase::Typing => {
+                        // Handled above
+                    }
+                }
+            } else {
+                app.focus_increase_difficulty();
+            }
+        }
+
+        _ => {}
+    }
+}
+
 async fn handle_editing_mode(app: &mut App, key: KeyEvent) -> Result<()> {
     match app.screen {
         Screen::Search => handle_search_editing(app, key).await,
@@ -642,10 +820,17 @@ async fn handle_search_editing(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
+            app.search_focus = SearchFocus::Results;  // Return focus to results
         }
         KeyCode::Enter => {
             app.perform_search();
             app.input_mode = InputMode::Normal;
+            app.search_focus = SearchFocus::Results;  // Return focus to results after search
+        }
+        KeyCode::Tab => {
+            // Tab out of input to cycle to Results
+            app.input_mode = InputMode::Normal;
+            app.search_focus = SearchFocus::Results;
         }
         KeyCode::Backspace => {
             app.search_input.pop();
@@ -878,6 +1063,10 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                 Screen::Search => {
                     app.search_nav_down();
                 }
+                Screen::Focus => {
+                    // Navigate to next verse on scroll down
+                    app.focus_next_verse();
+                }
             }
         }
         MouseEventKind::ScrollUp => {
@@ -904,6 +1093,10 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
                 }
                 Screen::Search => {
                     app.search_nav_up();
+                }
+                Screen::Focus => {
+                    // Navigate to previous verse on scroll up
+                    app.focus_prev_verse();
                 }
             }
         }

@@ -77,6 +77,14 @@ rm -rf "$TEMP_DIR"
 
 echo ""
 echo "✓ Installed $BINARY to $INSTALL_DIR/$BINARY"
+
+# Pre-download embedding model for semantic search
+echo ""
+echo "Downloading embedding model for semantic search..."
+"$INSTALL_DIR/$BINARY" --download-model || {
+  echo "Warning: Failed to download embedding model. Semantic search may be slower on first use."
+}
+
 echo ""
 if ! echo ":$PATH:" | grep -qF ":$INSTALL_DIR:"; then
   echo "Add to your PATH by adding this to ~/.bashrc or ~/.zshrc:"

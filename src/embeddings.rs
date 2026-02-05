@@ -57,7 +57,9 @@ impl EmbeddingsDb {
     fn ensure_model(&mut self) -> Result<()> {
         if self.model.is_none() {
             // Model will be downloaded to ~/.cache/fastembed/ on first use (~33MB)
-            let options = InitOptions::new(EmbeddingModel::BGESmallENV15);
+            // Disable download progress to avoid corrupting TUI display
+            let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
+                .with_show_download_progress(false);
             self.model = Some(
                 TextEmbedding::try_new(options)
                     .map_err(|e| anyhow!("Failed to load embedding model: {}", e))?,
