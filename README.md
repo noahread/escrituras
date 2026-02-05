@@ -5,6 +5,7 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 ## Features
 
 - **Browse Scriptures**: Navigate by volume, book, and chapter with verse selection
+- **Focus Mode**: Immersive single-verse study with memorization tools
 - **Semantic Search**: Find verses by meaning, not just keywords (plus stemming: faith → faithful)
 - **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
 - **Multi-Provider AI**: Switch between AI providers seamlessly
@@ -86,8 +87,9 @@ scriptures
 | Key | Mode | Description |
 |-----|------|-------------|
 | `b` | Browse | Navigate volumes, books, chapters, and verses |
-| `s` | Search | Full-text search across all scriptures |
+| `/` | Search | Full-text search across all scriptures |
 | `a` | AI Chat | Ask questions with AI and scripture context |
+| `f` | Focus | Immersive single-verse study (from any selected verse) |
 
 ### Navigation
 
@@ -119,6 +121,32 @@ scriptures
 | `v` | Start verse selection (in Browse mode) |
 | `v` | End selection and save verse range |
 | `Esc` | Cancel selection |
+
+### Focus Mode
+
+Press `f` on any selected verse to enter Focus Mode for immersive study.
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Next / previous verse (crosses chapter boundaries) |
+| `c` | Copy verse to clipboard |
+| `x` | Save verse to context |
+| `m` | Toggle memorization mode |
+| `Esc` / `q` | Exit focus mode |
+
+**Memorization Mode** (`m` to toggle):
+
+| Key | Action |
+|-----|--------|
+| `+` / `-` | Increase / decrease difficulty (levels 1-5) |
+| `M` | Switch between Progressive and Flashcard modes |
+
+*Progressive mode*: Words are progressively hidden based on difficulty level. First letter always shown as hint.
+
+*Flashcard mode*:
+- `Space` / `Enter` to reveal the verse
+- `t` to type your attempt before revealing
+- `r` to reset and try again
 
 ## Scripture Database
 
