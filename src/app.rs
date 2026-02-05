@@ -583,26 +583,40 @@ impl App {
         }
     }
 
-    // Content scrolling
+    // Content scrolling - now verse-based to match rendering
     pub fn scroll_down(&mut self) {
-        if self.content_scroll < self.total_content_lines.saturating_sub(self.content_height) {
-            self.content_scroll = self.content_scroll.saturating_add(1);
+        // Move to next verse (used by mouse scroll)
+        if let Some(idx) = self.selected_verse_idx {
+            if idx < self.cached_verses.len().saturating_sub(1) {
+                self.selected_verse_idx = Some(idx + 1);
+            }
         }
     }
 
     pub fn scroll_up(&mut self) {
-        self.content_scroll = self.content_scroll.saturating_sub(1);
+        // Move to previous verse (used by mouse scroll)
+        if let Some(idx) = self.selected_verse_idx {
+            if idx > 0 {
+                self.selected_verse_idx = Some(idx - 1);
+            }
+        }
     }
 
     pub fn scroll_half_page_down(&mut self) {
-        let half_page = self.content_height / 2;
-        let max_scroll = self.total_content_lines.saturating_sub(self.content_height);
-        self.content_scroll = (self.content_scroll + half_page).min(max_scroll);
+        // Move down several verses (Ctrl+D)
+        let jump = 5; // Jump 5 verses at a time
+        if let Some(idx) = self.selected_verse_idx {
+            let max_idx = self.cached_verses.len().saturating_sub(1);
+            self.selected_verse_idx = Some((idx + jump).min(max_idx));
+        }
     }
 
     pub fn scroll_half_page_up(&mut self) {
-        let half_page = self.content_height / 2;
-        self.content_scroll = self.content_scroll.saturating_sub(half_page);
+        // Move up several verses (Ctrl+U)
+        let jump = 5; // Jump 5 verses at a time
+        if let Some(idx) = self.selected_verse_idx {
+            self.selected_verse_idx = Some(idx.saturating_sub(jump));
+        }
     }
 
     // Search - combines semantic (if available) and keyword results
@@ -1117,7 +1131,8 @@ impl App {
     /// Navigate to next verse in Focus Mode
     pub fn focus_next_verse(&mut self) {
         if let Some(ref mut state) = self.focus_state {
-            if state.current_index < state.volume_verses.len() - 1 {
+            // Use saturating_sub to avoid underflow when volume_verses is empty
+            if state.current_index < state.volume_verses.len().saturating_sub(1) {
                 state.current_index += 1;
                 state.current_verse = state.volume_verses[state.current_index].clone();
                 // Reset memorization state when navigating
