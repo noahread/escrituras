@@ -820,6 +820,11 @@ async fn handle_search_editing(app: &mut App, key: KeyEvent) {
             app.input_mode = InputMode::Normal;
             app.search_focus = SearchFocus::Results;  // Return focus to results after search
         }
+        KeyCode::Tab => {
+            // Tab out of input to cycle to Results
+            app.input_mode = InputMode::Normal;
+            app.search_focus = SearchFocus::Results;
+        }
         KeyCode::Backspace => {
             app.search_input.pop();
         }

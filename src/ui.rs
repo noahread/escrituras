@@ -1321,9 +1321,57 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                     .wrap(Wrap { trim: true });
                 frame.render_widget(input, input_area);
 
-                // Show cursor
-                let cursor_x = state.flashcard_input_cursor.min(input_area.width as usize) as u16;
-                frame.set_cursor_position((input_area.x + cursor_x, input_area.y));
+                // Show cursor - calculate position accounting for text wrapping
+                let input_width = input_area.width as usize;
+                let cursor_char_pos = state.flashcard_input_cursor;
+
+                // Calculate which line and column the cursor is on after wrapping
+                let (cursor_line, cursor_col) = if input_width > 0 {
+                    // Walk through the text to find cursor position accounting for word wrap
+                    let mut line = 0usize;
+                    let mut col = 0usize;
+                    let mut char_count = 0usize;
+
+                    for word in state.flashcard_input.split_whitespace() {
+                        let word_len = word.chars().count();
+
+                        // Check if we need to wrap before this word
+                        if col > 0 && col + 1 + word_len > input_width {
+                            line += 1;
+                            col = 0;
+                        }
+
+                        // Add space before word if not at start of line
+                        if col > 0 {
+                            if char_count == cursor_char_pos {
+                                break; // Cursor is at the space
+                            }
+                            char_count += 1;
+                            col += 1;
+                        }
+
+                        // Process each character in the word
+                        for _ in word.chars() {
+                            if char_count == cursor_char_pos {
+                                break;
+                            }
+                            char_count += 1;
+                            col += 1;
+                        }
+
+                        if char_count >= cursor_char_pos {
+                            break;
+                        }
+                    }
+
+                    (line, col)
+                } else {
+                    (0, cursor_char_pos)
+                };
+
+                let cursor_x = (cursor_col as u16).min(input_area.width.saturating_sub(1));
+                let cursor_y = (cursor_line as u16).min(input_area.height.saturating_sub(1));
+                frame.set_cursor_position((input_area.x + cursor_x, input_area.y + cursor_y));
 
                 return;
             }
