@@ -73,6 +73,123 @@ fn wrap_text_to_width(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+/// Pre-calculated layout information for a single verse
+struct VerseLayout {
+    verse_idx: usize,       // Index into cached_verses
+    start_line: usize,      // Global line number where this verse starts
+    line_count: usize,      // Number of lines this verse occupies (including trailing blank)
+    wrapped_lines: Vec<String>,  // Pre-wrapped text lines
+}
+
+/// Layout information for the entire chapter
+struct ChapterLayout {
+    verses: Vec<VerseLayout>,
+    total_lines: usize,     // Total lines in the chapter
+}
+
+/// Calculate the line-based layout for all verses in a chapter
+fn calculate_chapter_layout(verses: &[crate::scripture::Scripture], width: usize) -> ChapterLayout {
+    let mut layouts = Vec::with_capacity(verses.len());
+    let mut current_line = 0;
+
+    for (idx, verse) in verses.iter().enumerate() {
+        // Calculate the verse number prefix width (e.g., "12  " = 4 chars)
+        let num_prefix = format!("{}  ", verse.verse_number);
+        let prefix_len = num_prefix.chars().count();
+
+        // First line has less available width due to verse number prefix
+        let first_line_width = width.saturating_sub(prefix_len);
+
+        // Wrap the scripture text (without verse number)
+        let mut wrapped = Vec::new();
+        let text = &verse.scripture_text;
+
+        if first_line_width > 0 && !text.is_empty() {
+            // Wrap first line with reduced width
+            let first_line_wrapped = wrap_text_to_width(text, first_line_width);
+            if !first_line_wrapped.is_empty() {
+                wrapped.push(first_line_wrapped[0].clone());
+
+                // If there's remaining text after the first line, wrap it at full width
+                if first_line_wrapped.len() > 1 {
+                    // Reconstruct remaining text and rewrap at full width
+                    let first_line_chars: usize = first_line_wrapped[0].chars().count();
+                    let remaining: String = text.chars().skip(first_line_chars).collect();
+                    let remaining = remaining.trim_start();
+                    if !remaining.is_empty() {
+                        let rest_wrapped = wrap_text_to_width(remaining, width);
+                        wrapped.extend(rest_wrapped);
+                    }
+                }
+            }
+        } else if !text.is_empty() {
+            // Fallback: just wrap at full width
+            wrapped = wrap_text_to_width(text, width.max(1));
+        }
+
+        if wrapped.is_empty() {
+            wrapped.push(String::new());
+        }
+
+        let line_count = wrapped.len() + 1; // +1 for blank line after verse
+
+        layouts.push(VerseLayout {
+            verse_idx: idx,
+            start_line: current_line,
+            line_count,
+            wrapped_lines: wrapped,
+        });
+
+        current_line += line_count;
+    }
+
+    ChapterLayout {
+        verses: layouts,
+        total_lines: current_line,
+    }
+}
+
+/// Calculate the optimal line_scroll position for a selected verse.
+/// Uses lazy scrolling - only adjusts scroll when verse would go out of view.
+fn calculate_scroll_for_verse(
+    layout: &ChapterLayout,
+    verse_idx: usize,
+    view_height: usize,
+    current_scroll: usize,
+    _direction: crate::app::ScrollDirection,  // Kept for potential future use
+    verse_line_offset: usize,
+) -> usize {
+    if verse_idx >= layout.verses.len() || view_height == 0 {
+        return 0;
+    }
+
+    let verse = &layout.verses[verse_idx];
+    let verse_start = verse.start_line + verse_line_offset;
+    let verse_content_height = verse.wrapped_lines.len(); // Exclude trailing blank for visibility check
+    let verse_end = verse.start_line + verse_content_height;
+
+    // For verses taller than view, just show from the offset position
+    if verse_content_height > view_height {
+        return verse_start;
+    }
+
+    // Lazy scrolling: only scroll if verse is not fully visible
+    let view_end = current_scroll + view_height;
+
+    // If verse top is above view, scroll up to show verse at top
+    if verse_start < current_scroll {
+        return verse_start;
+    }
+
+    // If verse bottom is below view, scroll down to show verse at bottom
+    if verse_end > view_end {
+        return verse_end.saturating_sub(view_height);
+    }
+
+    // Verse is fully visible - keep current scroll position
+    current_scroll
+}
+
 /// Parse a line of text and convert **bold** and *italic* markdown to styled spans
 fn parse_markdown_line(text: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -599,6 +716,8 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
 
     let inner_area = block.inner(area);
     app.content_height = inner_area.height;
+    app.content_width = inner_area.width as usize;
+    let view_height = inner_area.height as usize;
     let inner_width = inner_area.width as usize;
 
     if app.cached_verses.is_empty() {
@@ -609,46 +728,54 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
         return;
     }
 
-    let total_verses = app.cached_verses.len();
-    let selected = app.selected_verse_idx.unwrap_or(0);
+    // Calculate layout for all verses (pre-wrap all text)
+    let layout = calculate_chapter_layout(&app.cached_verses, inner_width);
+    app.total_content_lines = layout.total_lines as u16;
 
-    // Conservative estimate of visible verses - use 4 lines per verse to account for
-    // longer verses that wrap to multiple lines. This ensures we scroll earlier.
-    let visible_verses = (inner_area.height as usize / 4).max(1);
+    // Determine selected verse
+    let selected_idx = app.selected_verse_idx.unwrap_or(0);
 
-    // Keep the selected verse in the top portion of the view, not at the bottom.
-    // This gives room for longer verses to display fully.
-    // Scroll when selected would be past the first 2/3 of visible area.
-    let scroll_threshold = (visible_verses * 2 / 3).max(1);
+    // Calculate optimal scroll position using lazy scrolling
+    // Only adjusts if verse would go out of view
+    let optimal_scroll = calculate_scroll_for_verse(
+        &layout,
+        selected_idx,
+        view_height,
+        app.line_scroll,  // Pass current scroll for lazy behavior
+        app.last_scroll_direction,
+        app.verse_line_offset,
+    );
+    app.line_scroll = optimal_scroll;
 
-    // Adjust verse_scroll to keep selected verse visible with buffer
-    if selected < app.verse_scroll {
-        app.verse_scroll = selected;
-    } else if selected >= app.verse_scroll + scroll_threshold {
-        // Put selected verse near the top, leaving room for it to display fully
-        app.verse_scroll = selected.saturating_sub(scroll_threshold / 2);
-    }
-    // Clamp scroll to valid range
-    let max_scroll = total_verses.saturating_sub(visible_verses);
-    if app.verse_scroll > max_scroll {
-        app.verse_scroll = max_scroll;
-    }
+    // Determine the line range to render
+    let scroll_start = app.line_scroll;
+    let scroll_end = scroll_start + view_height;
 
-    // Build lines for visible verses plus buffer to ensure we fill the screen
-    // Since we use a conservative estimate, render extra verses to fill available space
-    let render_count = (inner_area.height as usize / 2).max(visible_verses + 3);
-    let end_verse = (app.verse_scroll + render_count).min(total_verses);
+    // Build visible lines
     let mut lines: Vec<Line> = Vec::new();
 
-    for idx in app.verse_scroll..end_verse {
-        let verse = &app.cached_verses[idx];
-        let is_cursor = app.selected_verse_idx == Some(idx) && app.focus == FocusPane::Content;
+    for verse_layout in &layout.verses {
+        let verse = &app.cached_verses[verse_layout.verse_idx];
+        let verse_end_line = verse_layout.start_line + verse_layout.line_count;
+
+        // Skip verses entirely above the view
+        if verse_end_line <= scroll_start {
+            continue;
+        }
+        // Stop when we're past the view
+        if verse_layout.start_line >= scroll_end {
+            break;
+        }
+
+        let is_cursor = app.selected_verse_idx == Some(verse_layout.verse_idx)
+            && app.focus == FocusPane::Content;
         let is_in_range = app.selected_range.as_ref().is_some_and(|range| {
             range.book_title == verse.book_title
                 && range.chapter_number == verse.chapter_number
                 && range.contains_verse(verse.verse_number)
         });
 
+        // Determine styles
         let verse_num_style = if is_cursor {
             Style::default().fg(Color::White).bg(Color::Blue).bold()
         } else if is_in_range {
@@ -665,29 +792,48 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
             Style::default()
         };
 
-        // For selected verse, manually wrap and pad each line to full width
-        if is_cursor {
-            let text = format!("{}  {}", verse.verse_number, verse.scripture_text);
-            let wrapped_lines = wrap_text_to_width(&text, inner_width);
-            for line in wrapped_lines {
-                let padded = format!("{:<width$}", line, width = inner_width);
-                lines.push(Line::styled(padded, verse_text_style));
+        // Render each wrapped line that's visible
+        for (line_idx, wrapped_line) in verse_layout.wrapped_lines.iter().enumerate() {
+            let global_line = verse_layout.start_line + line_idx;
+
+            if global_line >= scroll_start && global_line < scroll_end {
+                let num_prefix = format!("{}  ", verse.verse_number);
+
+                if line_idx == 0 {
+                    // First line: prepend verse number
+                    if is_cursor {
+                        // Full line with verse number, padded for highlight
+                        let full_line = format!("{}{}", num_prefix, wrapped_line);
+                        let padded = format!("{:<width$}", full_line, width = inner_width);
+                        lines.push(Line::styled(padded, verse_text_style));
+                    } else {
+                        // Verse number in yellow, text in default
+                        lines.push(Line::from(vec![
+                            Span::styled(num_prefix, verse_num_style),
+                            Span::styled(wrapped_line.clone(), verse_text_style),
+                        ]));
+                    }
+                } else {
+                    // Continuation lines
+                    if is_cursor {
+                        let padded = format!("{:<width$}", wrapped_line, width = inner_width);
+                        lines.push(Line::styled(padded, verse_text_style));
+                    } else {
+                        lines.push(Line::styled(wrapped_line.clone(), verse_text_style));
+                    }
+                }
             }
-        } else {
-            let verse_num = Span::styled(format!("{}  ", verse.verse_number), verse_num_style);
-            let verse_text_span = Span::styled(&verse.scripture_text[..], verse_text_style);
-            lines.push(Line::from(vec![verse_num, verse_text_span]));
         }
 
-        lines.push(Line::default()); // Empty line between verses
+        // Add blank line after verse (if visible)
+        let blank_line_pos = verse_layout.start_line + verse_layout.wrapped_lines.len();
+        if blank_line_pos >= scroll_start && blank_line_pos < scroll_end {
+            lines.push(Line::default());
+        }
     }
 
-    app.total_content_lines = (total_verses * 2) as u16; // Approximate for compatibility
-
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: true });
-
+    // Render without Paragraph's internal wrapping (we did it manually)
+    let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
 }
 

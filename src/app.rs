@@ -80,6 +80,14 @@ pub enum SearchFocus {
     Input,  // Search input field
 }
 
+/// Direction of last scroll movement (for verse positioning in view)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollDirection {
+    #[default]
+    Down,
+    Up,
+}
+
 /// State for Focus Mode - immersive single-verse study
 #[derive(Debug, Clone)]
 pub struct FocusState {
@@ -113,7 +121,8 @@ pub struct NavigationState {
     pub volume_idx: Option<usize>,
     pub book_idx: Option<usize>,
     pub chapter_idx: Option<usize>,
-    pub scroll: u16,
+    pub line_scroll: usize,
+    pub verse_line_offset: usize,
 }
 
 pub struct App {
@@ -138,11 +147,13 @@ pub struct App {
     pub refs_visible_height: usize,
     pub context_visible_height: usize,
 
-    // Content state
-    pub content_scroll: u16,  // Legacy line-based scroll (kept for compatibility)
-    pub verse_scroll: usize,  // Verse-based scroll (which verse is at top of view)
-    pub content_height: u16,
-    pub total_content_lines: u16,
+    // Content state - line-based scrolling
+    pub line_scroll: usize,           // Which line is at top of view (line-based scroll)
+    pub verse_line_offset: usize,     // Sub-verse offset for verses taller than view
+    pub last_scroll_direction: ScrollDirection, // For verse positioning (top vs bottom)
+    pub content_height: u16,          // Height of content area in lines
+    pub content_width: usize,         // Width of content area for text wrapping
+    pub total_content_lines: u16,     // Total lines in chapter (for reference)
 
     // Search state
     pub search_input: String,
@@ -308,9 +319,11 @@ impl App {
             refs_visible_height: 10,
             context_visible_height: 10,
 
-            content_scroll: 0,
-            verse_scroll: 0,
+            line_scroll: 0,
+            verse_line_offset: 0,
+            last_scroll_direction: ScrollDirection::Down,
             content_height: 0,
+            content_width: 80,  // Default, updated during render
             total_content_lines: 0,
 
             search_input: String::new(),
@@ -524,7 +537,8 @@ impl App {
                 self.cached_verses.clear();
                 self.chapter_state.select(None);
                 self.chapter_scroll = 0;
-                self.content_scroll = 0;
+                self.line_scroll = 0;
+                self.verse_line_offset = 0;
             }
         }
     }
@@ -571,13 +585,18 @@ impl App {
         }
     }
 
-    fn load_verses(&mut self) {
+    /// Load verses for the current book/chapter selection.
+    /// Returns true if verses were successfully loaded, false otherwise.
+    fn load_verses(&mut self) -> bool {
+        // Always reset scroll state when attempting to load verses
+        self.line_scroll = 0;
+        self.verse_line_offset = 0;
+        self.last_scroll_direction = ScrollDirection::Down;
+
         if let (Some(book), Some(chapter)) = (self.selected_book().cloned(), self.selected_chapter()) {
             let verses = self.scripture_db.get_verses_for_chapter(&book, chapter);
             self.cached_verses = verses.into_iter().cloned().collect();
-            self.content_scroll = 0;
-            self.verse_scroll = 0;
-            // Reset selected verse - caller should set it appropriately
+            // Reset selected verse
             self.selected_verse_idx = if self.cached_verses.is_empty() {
                 None
             } else {
@@ -588,7 +607,36 @@ impl App {
             if !self.browsed_chapters.iter().any(|(b, c)| b == &book && *c == chapter) {
                 self.browsed_chapters.push((book, chapter));
             }
+
+            !self.cached_verses.is_empty()
+        } else {
+            false
         }
+    }
+
+    /// Load verses for a specific book and chapter.
+    /// Returns true if verses were successfully loaded, false otherwise.
+    /// Does NOT modify navigation state - caller should update state after success.
+    fn load_verses_for(&mut self, book: &str, chapter: i32) -> bool {
+        let verses = self.scripture_db.get_verses_for_chapter(book, chapter);
+        if verses.is_empty() {
+            return false;
+        }
+
+        // Success - update verse state atomically
+        self.cached_verses = verses.into_iter().cloned().collect();
+        self.line_scroll = 0;
+        self.verse_line_offset = 0;
+        self.last_scroll_direction = ScrollDirection::Down;
+        self.selected_verse_idx = Some(0);
+
+        // Track browsed chapter
+        let book_owned = book.to_string();
+        if !self.browsed_chapters.iter().any(|(b, c)| b == &book_owned && *c == chapter) {
+            self.browsed_chapters.push((book_owned, chapter));
+        }
+
+        true
     }
 
     // Content scrolling - now verse-based to match rendering
@@ -737,7 +785,8 @@ impl App {
             volume_idx: self.volume_state.selected(),
             book_idx: self.book_state.selected(),
             chapter_idx: self.chapter_state.selected(),
-            scroll: self.content_scroll,
+            line_scroll: self.line_scroll,
+            verse_line_offset: self.verse_line_offset,
         };
         self.navigation_stack.push(state);
     }
@@ -773,7 +822,8 @@ impl App {
                 }
             }
 
-            self.content_scroll = state.scroll;
+            self.line_scroll = state.line_scroll;
+            self.verse_line_offset = state.verse_line_offset;
             self.nav_level = NavLevel::Chapter;
             true
         } else {
@@ -876,8 +926,10 @@ impl App {
             .unwrap_or(true);
 
         if needs_reset {
-            // Select the topmost visible verse (based on current scroll position)
-            self.selected_verse_idx = Some(self.verse_scroll.min(max_idx));
+            // Select the first verse if selection is invalid
+            self.selected_verse_idx = Some(0);
+            self.line_scroll = 0;
+            self.verse_line_offset = 0;
         }
     }
 
@@ -889,17 +941,21 @@ impl App {
 
         let current = self.selected_verse_idx.unwrap_or(0);
 
+        // Set direction for scroll positioning (lock to bottom when going down)
+        self.last_scroll_direction = ScrollDirection::Down;
+
         // If not at the last verse of the chapter, just move to next verse
         if current < len - 1 {
             self.selected_verse_idx = Some(current + 1);
-            self.scroll_to_selected_verse();
+            self.verse_line_offset = 0; // Reset sub-verse offset for new verse
             return;
         }
 
         // At the last verse - try to navigate to next chapter
         if self.navigate_to_next_chapter() {
             self.selected_verse_idx = Some(0);
-            self.scroll_to_selected_verse();
+            self.verse_line_offset = 0;
+            self.line_scroll = 0;
         }
         // If at volume boundary, stay at last verse (do nothing)
     }
@@ -911,10 +967,13 @@ impl App {
 
         let current = self.selected_verse_idx.unwrap_or(0);
 
+        // Set direction for scroll positioning (lock to top when going up)
+        self.last_scroll_direction = ScrollDirection::Up;
+
         // If not at the first verse of the chapter, just move to previous verse
         if current > 0 {
             self.selected_verse_idx = Some(current - 1);
-            self.scroll_to_selected_verse();
+            self.verse_line_offset = 0; // Reset sub-verse offset for new verse
             return;
         }
 
@@ -923,21 +982,29 @@ impl App {
             // Select the last verse of the previous chapter
             let last_idx = self.cached_verses.len().saturating_sub(1);
             self.selected_verse_idx = Some(last_idx);
-            self.scroll_to_selected_verse();
+            self.verse_line_offset = 0;
         }
         // If at volume boundary, stay at first verse (do nothing)
     }
 
     /// Navigate to the next chapter within the current volume.
     /// Returns true if navigation was successful, false if at volume boundary.
+    /// Uses atomic state updates - only modifies navigation state after verses load successfully.
     fn navigate_to_next_chapter(&mut self) -> bool {
         let volume = match self.selected_volume() {
             Some(v) => v.clone(),
             None => return false,
         };
 
-        // We just need to verify a book is selected; actual book name not used
-        if self.selected_book().is_none() {
+        let book = match self.selected_book() {
+            Some(b) => b.clone(),
+            None => return false,
+        };
+
+        // ALWAYS refresh cached_chapters from the database to ensure consistency
+        // This fixes issues where initial navigation left stale state
+        self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
+        if self.cached_chapters.is_empty() {
             return false;
         }
 
@@ -947,10 +1014,20 @@ impl App {
         };
 
         // Try to go to next chapter in current book
-        if current_chapter_idx + 1 < self.cached_chapters.len() {
-            self.chapter_state.select(Some(current_chapter_idx + 1));
-            self.load_verses();
-            return true;
+        let next_chapter_idx = current_chapter_idx + 1;
+        if next_chapter_idx < self.cached_chapters.len() {
+            // Get the chapter number BEFORE updating state
+            let next_chapter = match self.cached_chapters.get(next_chapter_idx) {
+                Some(&ch) => ch,
+                None => return false,
+            };
+
+            // Try to load verses - only update state if successful
+            if self.load_verses_for(&book, next_chapter) {
+                self.chapter_state.select(Some(next_chapter_idx));
+                return true;
+            }
+            return false;
         }
 
         // At last chapter of book - try to go to next book in volume
@@ -960,21 +1037,34 @@ impl App {
             None => return false,
         };
 
-        if current_book_idx + 1 < books.len() {
-            // Move to next book
-            let next_book_idx = current_book_idx + 1;
-            self.book_state.select(Some(next_book_idx));
-            self.cached_books = books;
+        let next_book_idx = current_book_idx + 1;
+        if next_book_idx < books.len() {
+            // Get the next book name
+            let next_book = match books.get(next_book_idx) {
+                Some(b) => b.clone(),
+                None => return false,
+            };
 
             // Load chapters for the new book
-            if let Some(next_book) = self.cached_books.get(next_book_idx) {
-                self.cached_chapters = self.scripture_db.get_chapters_for_book(next_book);
-                if !self.cached_chapters.is_empty() {
-                    self.chapter_state.select(Some(0));
-                    self.chapter_scroll = 0;
-                    self.load_verses();
-                    return true;
-                }
+            let new_chapters = self.scripture_db.get_chapters_for_book(&next_book);
+            if new_chapters.is_empty() {
+                return false;
+            }
+
+            // Get first chapter number
+            let first_chapter = match new_chapters.first() {
+                Some(&ch) => ch,
+                None => return false,
+            };
+
+            // Try to load verses - only update ALL state if successful
+            if self.load_verses_for(&next_book, first_chapter) {
+                self.book_state.select(Some(next_book_idx));
+                self.cached_books = books;
+                self.cached_chapters = new_chapters;
+                self.chapter_state.select(Some(0));
+                self.chapter_scroll = 0;
+                return true;
             }
         }
 
@@ -984,11 +1074,24 @@ impl App {
 
     /// Navigate to the previous chapter within the current volume.
     /// Returns true if navigation was successful, false if at volume boundary.
+    /// Uses atomic state updates - only modifies navigation state after verses load successfully.
     fn navigate_to_prev_chapter(&mut self) -> bool {
         let volume = match self.selected_volume() {
             Some(v) => v.clone(),
             None => return false,
         };
+
+        let book = match self.selected_book() {
+            Some(b) => b.clone(),
+            None => return false,
+        };
+
+        // ALWAYS refresh cached_chapters from the database to ensure consistency
+        // This fixes issues where initial navigation left stale state
+        self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
+        if self.cached_chapters.is_empty() {
+            return false;
+        }
 
         let current_chapter_idx = match self.chapter_state.selected() {
             Some(idx) => idx,
@@ -997,9 +1100,19 @@ impl App {
 
         // Try to go to previous chapter in current book
         if current_chapter_idx > 0 {
-            self.chapter_state.select(Some(current_chapter_idx - 1));
-            self.load_verses();
-            return true;
+            let prev_chapter_idx = current_chapter_idx - 1;
+            // Get the chapter number BEFORE updating state
+            let prev_chapter = match self.cached_chapters.get(prev_chapter_idx) {
+                Some(&ch) => ch,
+                None => return false,
+            };
+
+            // Try to load verses - only update state if successful
+            if self.load_verses_for(&book, prev_chapter) {
+                self.chapter_state.select(Some(prev_chapter_idx));
+                return true;
+            }
+            return false;
         }
 
         // At first chapter of book - try to go to previous book in volume
@@ -1010,22 +1123,34 @@ impl App {
         };
 
         if current_book_idx > 0 {
-            // Move to previous book
             let prev_book_idx = current_book_idx - 1;
-            self.book_state.select(Some(prev_book_idx));
-            self.cached_books = books;
+            // Get the previous book name
+            let prev_book = match books.get(prev_book_idx) {
+                Some(b) => b.clone(),
+                None => return false,
+            };
 
             // Load chapters for the previous book
-            if let Some(prev_book) = self.cached_books.get(prev_book_idx) {
-                self.cached_chapters = self.scripture_db.get_chapters_for_book(prev_book);
-                if !self.cached_chapters.is_empty() {
-                    // Select the last chapter
-                    let last_chapter_idx = self.cached_chapters.len() - 1;
-                    self.chapter_state.select(Some(last_chapter_idx));
-                    self.chapter_scroll = last_chapter_idx;
-                    self.load_verses();
-                    return true;
-                }
+            let new_chapters = self.scripture_db.get_chapters_for_book(&prev_book);
+            if new_chapters.is_empty() {
+                return false;
+            }
+
+            // Get last chapter index and number
+            let last_chapter_idx = new_chapters.len() - 1;
+            let last_chapter = match new_chapters.get(last_chapter_idx) {
+                Some(&ch) => ch,
+                None => return false,
+            };
+
+            // Try to load verses - only update ALL state if successful
+            if self.load_verses_for(&prev_book, last_chapter) {
+                self.book_state.select(Some(prev_book_idx));
+                self.cached_books = books;
+                self.cached_chapters = new_chapters;
+                self.chapter_state.select(Some(last_chapter_idx));
+                self.chapter_scroll = last_chapter_idx;
+                return true;
             }
         }
 
@@ -1192,35 +1317,11 @@ impl App {
         }
     }
 
+    /// Scroll adjustment is now handled in render_content() based on line_scroll
+    /// This function is kept for API compatibility but does nothing
     fn scroll_to_selected_verse(&mut self) {
-        if let Some(idx) = self.selected_verse_idx {
-            let wrap_width = 40usize;
-            let mut verse_start_line = 0u16;
-            #[allow(unused_assignments)]
-            let mut verse_end_line = 0u16;
-
-            for (i, verse) in self.cached_verses.iter().enumerate() {
-                // Use character count, not byte length, for proper UTF-8 handling
-                let text_lines = (verse.scripture_text.chars().count() / wrap_width + 1) as u16;
-                verse_end_line = verse_start_line + text_lines;
-
-                if i == idx {
-                    // Check if verse is above visible area
-                    if verse_start_line < self.content_scroll {
-                        self.content_scroll = verse_start_line;
-                    }
-                    // Check if verse is below visible area
-                    else if verse_end_line > self.content_scroll + self.content_height {
-                        // Scroll so verse bottom is at viewport bottom
-                        self.content_scroll = verse_end_line.saturating_sub(self.content_height);
-                    }
-                    // Otherwise verse is visible, don't scroll
-                    break;
-                }
-
-                verse_start_line = verse_end_line + 1; // +1 for blank line between verses
-            }
-        }
+        // No-op: scroll positioning is now done in render_content()
+        // based on selected_verse_idx, last_scroll_direction, and verse_line_offset
     }
 
     // Focus Mode methods

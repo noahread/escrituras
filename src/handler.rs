@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use crate::app::{App, ChatMessage, ChatRole, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, SearchFocus};
+use crate::app::{App, ChatMessage, ChatRole, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection, SearchFocus};
 use crate::tui::AppEvent;
 use crate::provider::Provider;
 use crate::claude::ClaudeClient;
@@ -82,7 +82,9 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.nav_first();
             } else {
                 app.selected_verse_idx = Some(0);
-                app.content_scroll = 0;
+                app.line_scroll = 0;
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Up;
             }
         }
         KeyCode::Char('G') => {
@@ -91,7 +93,9 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             } else {
                 let last = app.cached_verses.len().saturating_sub(1);
                 app.selected_verse_idx = Some(last);
-                app.content_scroll = app.total_content_lines.saturating_sub(app.content_height);
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Down;
+                // line_scroll will be calculated by render_content
             }
         }
 
@@ -584,7 +588,9 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('g') => {
             if app.focus == FocusPane::Content {
                 app.selected_verse_idx = Some(0);
-                app.content_scroll = 0;
+                app.line_scroll = 0;
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Up;
             } else {
                 app.query_scroll = 0;
             }
@@ -593,7 +599,8 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             if app.focus == FocusPane::Content {
                 let last = app.cached_verses.len().saturating_sub(1);
                 app.selected_verse_idx = Some(last);
-                app.content_scroll = app.total_content_lines.saturating_sub(app.content_height);
+                app.verse_line_offset = 0;
+                app.last_scroll_direction = ScrollDirection::Down;
             }
         }
 
