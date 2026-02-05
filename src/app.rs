@@ -14,6 +14,29 @@ pub enum Screen {
     Browse,
     Search,
     Query,
+    Focus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusSubMode {
+    #[default]
+    Reading,
+    Memorize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MemorizeMode {
+    #[default]
+    Progressive,
+    Flashcard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlashcardPhase {
+    #[default]
+    Hidden,   // Shows reference only, prompt to type or reveal
+    Typing,   // User is typing their attempt (editing mode)
+    Revealed, // Shows actual text with diff highlighting
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +77,34 @@ pub enum SearchFocus {
     #[default]
     Results,
     Preview,
+    Input,  // Search input field
+}
+
+/// State for Focus Mode - immersive single-verse study
+#[derive(Debug, Clone)]
+pub struct FocusState {
+    /// Current scripture being displayed
+    pub current_verse: Scripture,
+    /// Current sub-mode (reading or memorize)
+    pub sub_mode: FocusSubMode,
+    /// Memorization style
+    pub memorize_mode: MemorizeMode,
+    /// Memorization difficulty level (0-5)
+    pub memorize_level: u8,
+    /// Whether answer is revealed (flashcard mode) - deprecated, use flashcard_phase
+    pub memorize_revealed: bool,
+    /// All verses in the volume for navigation
+    pub volume_verses: Vec<Scripture>,
+    /// Current index into volume_verses
+    pub current_index: usize,
+    /// Screen we came from (for returning)
+    pub previous_screen: Screen,
+    /// Flashcard phase (hidden, typing, revealed)
+    pub flashcard_phase: FlashcardPhase,
+    /// User's typed attempt in flashcard mode
+    pub flashcard_input: String,
+    /// Cursor position in flashcard input
+    pub flashcard_input_cursor: usize,
 }
 
 /// Saved navigation state for returning to previous location
@@ -77,9 +128,19 @@ pub struct App {
     pub volume_state: ListState,
     pub book_state: ListState,
     pub chapter_state: ListState,
+    // Manual scroll tracking (bypasses ratatui's internal scroll logic)
+    pub volume_scroll: usize,
+    pub book_scroll: usize,
+    pub chapter_scroll: usize,
+    // Stored visible heights for scroll management (updated during render)
+    pub nav_visible_height: usize,
+    pub search_visible_height: usize,
+    pub refs_visible_height: usize,
+    pub context_visible_height: usize,
 
     // Content state
-    pub content_scroll: u16,
+    pub content_scroll: u16,  // Legacy line-based scroll (kept for compatibility)
+    pub verse_scroll: usize,  // Verse-based scroll (which verse is at top of view)
     pub content_height: u16,
     pub total_content_lines: u16,
 
@@ -142,6 +203,9 @@ pub struct App {
     pub nav_area: Option<Rect>,
     pub content_area: Option<Rect>,
     pub refs_area: Option<Rect>,
+
+    // Focus mode state
+    pub focus_state: Option<FocusState>,
 
     // Data
     pub scripture_db: ScriptureDb,
@@ -236,8 +300,16 @@ impl App {
             volume_state,
             book_state: ListState::default(),
             chapter_state: ListState::default(),
+            volume_scroll: 0,
+            book_scroll: 0,
+            chapter_scroll: 0,
+            nav_visible_height: 20, // Reasonable default, updated during render
+            search_visible_height: 20,
+            refs_visible_height: 10,
+            context_visible_height: 10,
 
             content_scroll: 0,
+            verse_scroll: 0,
             content_height: 0,
             total_content_lines: 0,
 
@@ -288,6 +360,8 @@ impl App {
             content_area: None,
             refs_area: None,
 
+            focus_state: None,
+
             scripture_db,
             embeddings_db,
             ollama,
@@ -313,7 +387,24 @@ impl App {
         self.chapter_state.selected().and_then(|i| self.cached_chapters.get(i).copied())
     }
 
+    /// Adjust a ListState's offset to ensure the selected item is visible
+    /// (Used for lists that don't have manual scroll tracking)
+    fn adjust_list_offset(state: &mut ListState, visible_height: usize) {
+        let visible_height = visible_height.max(1);
+        if let Some(selected) = state.selected() {
+            let min_offset = selected.saturating_sub(visible_height - 1);
+            let max_offset = selected;
+            let current = state.offset();
+            if current < min_offset {
+                *state.offset_mut() = min_offset;
+            } else if current > max_offset {
+                *state.offset_mut() = max_offset;
+            }
+        }
+    }
+
     // Navigation actions
+    // Note: scroll adjustment happens in render, not here, because only render knows the actual visible height
     pub fn nav_down(&mut self) {
         match self.nav_level {
             NavLevel::Volume => {
@@ -334,8 +425,7 @@ impl App {
                 let len = self.cached_chapters.len();
                 if len > 0 {
                     let i = self.chapter_state.selected().unwrap_or(0);
-                    let new_index = (i + 1).min(len - 1);
-                    self.chapter_state.select(Some(new_index));
+                    self.chapter_state.select(Some((i + 1).min(len - 1)));
                     self.load_verses();
                 }
             }
@@ -367,7 +457,21 @@ impl App {
                     self.cached_books = self.scripture_db.get_books_for_volume(&volume);
                     if !self.cached_books.is_empty() {
                         self.book_state.select(Some(0));
-                        self.nav_level = NavLevel::Book;
+                        self.book_scroll = 0;
+
+                        // For single-book volumes (like D&C), skip directly to chapters
+                        if self.is_single_book_volume(&volume) {
+                            // The book is auto-selected, now load chapters
+                            self.cached_chapters = self.scripture_db.get_chapters_for_book(&volume);
+                            if !self.cached_chapters.is_empty() {
+                                self.chapter_state.select(Some(0));
+                                self.chapter_scroll = 0;
+                                self.nav_level = NavLevel::Chapter;
+                                self.load_verses();
+                            }
+                        } else {
+                            self.nav_level = NavLevel::Book;
+                        }
                     }
                 }
             }
@@ -376,6 +480,7 @@ impl App {
                     self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
                     if !self.cached_chapters.is_empty() {
                         self.chapter_state.select(Some(0));
+                        self.chapter_scroll = 0;
                         self.nav_level = NavLevel::Chapter;
                         self.load_verses();
                     }
@@ -383,6 +488,7 @@ impl App {
             }
             NavLevel::Chapter => {
                 // At chapter level, Enter focuses the content pane
+                self.ensure_verse_selected();
                 self.focus = FocusPane::Content;
             }
         }
@@ -397,12 +503,26 @@ impl App {
                 self.nav_level = NavLevel::Volume;
                 self.cached_books.clear();
                 self.book_state.select(None);
+                self.book_scroll = 0;
             }
             NavLevel::Chapter => {
-                self.nav_level = NavLevel::Book;
+                // For single-book volumes, go back to Volume level (skip Book level)
+                let is_single_book = self.selected_book()
+                    .map(|b| self.is_single_book_volume(b))
+                    .unwrap_or(false);
+
+                if is_single_book {
+                    self.nav_level = NavLevel::Volume;
+                    self.cached_books.clear();
+                    self.book_state.select(None);
+                    self.book_scroll = 0;
+                } else {
+                    self.nav_level = NavLevel::Book;
+                }
                 self.cached_chapters.clear();
                 self.cached_verses.clear();
                 self.chapter_state.select(None);
+                self.chapter_scroll = 0;
                 self.content_scroll = 0;
             }
         }
@@ -410,10 +530,17 @@ impl App {
 
     pub fn nav_first(&mut self) {
         match self.nav_level {
-            NavLevel::Volume => self.volume_state.select(Some(0)),
-            NavLevel::Book => self.book_state.select(Some(0)),
+            NavLevel::Volume => {
+                self.volume_state.select(Some(0));
+                self.volume_scroll = 0;
+            }
+            NavLevel::Book => {
+                self.book_state.select(Some(0));
+                self.book_scroll = 0;
+            }
             NavLevel::Chapter => {
                 self.chapter_state.select(Some(0));
+                self.chapter_scroll = 0;
                 self.load_verses();
             }
         }
@@ -527,12 +654,14 @@ impl App {
         if len > 0 {
             let i = self.search_state.selected().unwrap_or(0);
             self.search_state.select(Some((i + 1).min(len - 1)));
+            Self::adjust_list_offset(&mut self.search_state, self.search_visible_height);
         }
     }
 
     pub fn search_nav_up(&mut self) {
         let i = self.search_state.selected().unwrap_or(0);
         self.search_state.select(Some(i.saturating_sub(1)));
+        Self::adjust_list_offset(&mut self.search_state, self.search_visible_height);
     }
 
     // Title helpers
@@ -540,8 +669,32 @@ impl App {
         match self.nav_level {
             NavLevel::Volume => "Volumes".to_string(),
             NavLevel::Book => self.selected_volume().cloned().unwrap_or_default(),
-            NavLevel::Chapter => self.selected_book().cloned().unwrap_or_default(),
+            NavLevel::Chapter => {
+                // For single-book volumes, show "Select a section" for D&C
+                if let Some(book) = self.selected_book() {
+                    if book == "Doctrine and Covenants" {
+                        return "Select a section".to_string();
+                    }
+                }
+                "Select a chapter".to_string()
+            }
         }
+    }
+
+    /// Check if a volume has only one book with the same name (like D&C)
+    pub fn is_single_book_volume(&self, volume: &str) -> bool {
+        let books = self.scripture_db.get_books_for_volume(volume);
+        books.len() == 1 && books.first().map(|b| b == volume).unwrap_or(false)
+    }
+
+    /// Get the label for a chapter (returns "Section X" for D&C, "Chapter X" for others)
+    pub fn get_chapter_label(&self, chapter: i32) -> String {
+        if let Some(book) = self.selected_book() {
+            if book == "Doctrine and Covenants" {
+                return format!("Section {}", chapter);
+            }
+        }
+        format!("Chapter {}", chapter)
     }
 
     pub fn content_title(&self) -> String {
@@ -673,15 +826,27 @@ impl App {
         if len > 0 {
             let i = self.references_state.selected().unwrap_or(0);
             self.references_state.select(Some((i + 1).min(len - 1)));
+            Self::adjust_list_offset(&mut self.references_state, self.refs_visible_height);
         }
     }
 
     pub fn references_nav_up(&mut self) {
         let i = self.references_state.selected().unwrap_or(0);
         self.references_state.select(Some(i.saturating_sub(1)));
+        Self::adjust_list_offset(&mut self.references_state, self.refs_visible_height);
     }
 
     // Verse selection methods
+
+    /// Ensure a verse is selected when focusing on content pane
+    /// Selects the topmost visible verse if nothing is selected
+    pub fn ensure_verse_selected(&mut self) {
+        if self.selected_verse_idx.is_none() && !self.cached_verses.is_empty() {
+            // Select the topmost visible verse (based on current scroll position)
+            self.selected_verse_idx = Some(self.verse_scroll.min(self.cached_verses.len() - 1));
+        }
+    }
+
     pub fn select_next_verse(&mut self) {
         let len = self.cached_verses.len();
         if len > 0 {
@@ -758,12 +923,14 @@ impl App {
         if len > 0 {
             let i = self.context_state.selected().unwrap_or(0);
             self.context_state.select(Some((i + 1).min(len - 1)));
+            Self::adjust_list_offset(&mut self.context_state, self.context_visible_height);
         }
     }
 
     pub fn context_nav_up(&mut self) {
         let i = self.context_state.selected().unwrap_or(0);
         self.context_state.select(Some(i.saturating_sub(1)));
+        Self::adjust_list_offset(&mut self.context_state, self.context_visible_height);
     }
 
     pub fn remove_selected_context(&mut self) {
@@ -886,5 +1053,191 @@ impl App {
                 verse_start_line = verse_end_line + 1; // +1 for blank line between verses
             }
         }
+    }
+
+    // Focus Mode methods
+
+    /// Enter Focus Mode from the current selected verse
+    pub fn enter_focus_mode(&mut self) {
+        // Save the current screen before switching
+        let previous_screen = self.screen;
+
+        // Get the current verse based on which screen we're on
+        let verse = match self.screen {
+            Screen::Browse => self.get_selected_verse().cloned(),
+            Screen::Search => {
+                self.search_state.selected()
+                    .and_then(|i| self.search_results.get(i).cloned())
+            }
+            Screen::Query => self.get_selected_verse().cloned(),
+            Screen::Focus => None, // Already in focus mode
+        };
+
+        if let Some(verse) = verse {
+            // Save navigation state for return
+            self.push_navigation_state();
+
+            // Build volume verse list for navigation
+            let volume = verse.volume_title.clone();
+            let volume_verses = self.scripture_db.get_all_verses_for_volume(&volume);
+
+            // Find current index in the volume
+            let current_index = volume_verses.iter().position(|v| {
+                v.book_title == verse.book_title
+                    && v.chapter_number == verse.chapter_number
+                    && v.verse_number == verse.verse_number
+            }).unwrap_or(0);
+
+            self.focus_state = Some(FocusState {
+                current_verse: verse,
+                sub_mode: FocusSubMode::Reading,
+                memorize_mode: MemorizeMode::Progressive,
+                memorize_level: 0,
+                memorize_revealed: false,
+                volume_verses,
+                current_index,
+                previous_screen,
+                flashcard_phase: FlashcardPhase::Hidden,
+                flashcard_input: String::new(),
+                flashcard_input_cursor: 0,
+            });
+
+            self.screen = Screen::Focus;
+        }
+    }
+
+    /// Exit Focus Mode and return to previous screen
+    pub fn exit_focus_mode(&mut self) {
+        if let Some(state) = self.focus_state.take() {
+            self.screen = state.previous_screen;
+        }
+        self.pop_navigation_state();
+    }
+
+    /// Navigate to next verse in Focus Mode
+    pub fn focus_next_verse(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            if state.current_index < state.volume_verses.len() - 1 {
+                state.current_index += 1;
+                state.current_verse = state.volume_verses[state.current_index].clone();
+                // Reset memorization state when navigating
+                state.memorize_level = 0;
+                state.memorize_revealed = false;
+                state.flashcard_phase = FlashcardPhase::Hidden;
+                state.flashcard_input.clear();
+                state.flashcard_input_cursor = 0;
+            }
+            // At volume boundary - stay at last verse
+        }
+    }
+
+    /// Navigate to previous verse in Focus Mode
+    pub fn focus_prev_verse(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            if state.current_index > 0 {
+                state.current_index -= 1;
+                state.current_verse = state.volume_verses[state.current_index].clone();
+                // Reset memorization state when navigating
+                state.memorize_level = 0;
+                state.memorize_revealed = false;
+                state.flashcard_phase = FlashcardPhase::Hidden;
+                state.flashcard_input.clear();
+                state.flashcard_input_cursor = 0;
+            }
+            // At volume boundary - stay at first verse
+        }
+    }
+
+    /// Toggle memorization mode on/off
+    pub fn focus_toggle_memorize(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.sub_mode = match state.sub_mode {
+                FocusSubMode::Reading => FocusSubMode::Memorize,
+                FocusSubMode::Memorize => FocusSubMode::Reading,
+            };
+            // Reset memorization state
+            state.memorize_level = 0;
+            state.memorize_revealed = false;
+        }
+    }
+
+    /// Cycle memorization mode (Progressive <-> Flashcard)
+    pub fn focus_cycle_memorize_mode(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.memorize_mode = match state.memorize_mode {
+                MemorizeMode::Progressive => MemorizeMode::Flashcard,
+                MemorizeMode::Flashcard => MemorizeMode::Progressive,
+            };
+            state.memorize_level = 0;
+            state.memorize_revealed = false;
+            state.flashcard_phase = FlashcardPhase::Hidden;
+            state.flashcard_input.clear();
+            state.flashcard_input_cursor = 0;
+        }
+    }
+
+    /// Increase memorization difficulty
+    pub fn focus_increase_difficulty(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            if state.memorize_level < 5 {
+                state.memorize_level += 1;
+            }
+        }
+    }
+
+    /// Decrease memorization difficulty
+    pub fn focus_decrease_difficulty(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.memorize_level = state.memorize_level.saturating_sub(1);
+        }
+    }
+
+    /// Reveal answer in flashcard mode
+    pub fn focus_reveal_flashcard(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.memorize_revealed = true;
+            state.flashcard_phase = FlashcardPhase::Revealed;
+        }
+    }
+
+    /// Reset flashcard to hidden state
+    pub fn focus_reset_flashcard(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.memorize_revealed = false;
+            state.flashcard_phase = FlashcardPhase::Hidden;
+            state.flashcard_input.clear();
+            state.flashcard_input_cursor = 0;
+        }
+    }
+
+    /// Start flashcard typing mode
+    pub fn focus_start_typing(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.flashcard_phase = FlashcardPhase::Typing;
+            state.flashcard_input.clear();
+            state.flashcard_input_cursor = 0;
+        }
+    }
+
+    /// Submit flashcard typing and reveal with diff
+    pub fn focus_submit_typing(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.flashcard_phase = FlashcardPhase::Revealed;
+            state.memorize_revealed = true;
+        }
+    }
+
+    /// Cancel flashcard typing and return to hidden
+    pub fn focus_cancel_typing(&mut self) {
+        if let Some(ref mut state) = self.focus_state {
+            state.flashcard_phase = FlashcardPhase::Hidden;
+            state.flashcard_input.clear();
+            state.flashcard_input_cursor = 0;
+        }
+    }
+
+    /// Get the current verse in focus mode (for copy/save operations)
+    pub fn get_focus_verse(&self) -> Option<&Scripture> {
+        self.focus_state.as_ref().map(|s| &s.current_verse)
     }
 }

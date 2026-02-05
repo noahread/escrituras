@@ -158,6 +158,15 @@ impl ScriptureDb {
         self.scriptures.iter().find(|s| s.verse_title == verse_title)
     }
 
+    /// Get all verses for a volume in canonical order (for Focus Mode navigation)
+    pub fn get_all_verses_for_volume(&self, volume: &str) -> Vec<Scripture> {
+        self.scriptures
+            .iter()
+            .filter(|s| s.volume_title == volume)
+            .cloned()
+            .collect()
+    }
+
     pub fn search(&self, query: &str, limit: usize) -> Vec<&Scripture> {
         let query_lower = query.to_lowercase();
         let stemmer = Stemmer::create(Algorithm::English);
