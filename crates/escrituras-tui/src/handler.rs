@@ -1,12 +1,9 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use crate::app::{App, ChatMessage, ChatRole, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection, SearchFocus};
+use crate::app::{App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection, SearchFocus};
 use crate::tui::AppEvent;
-use crate::provider::Provider;
-use crate::claude::ClaudeClient;
-use crate::openai::OpenAIClient;
-use crate::config::Config;
+use escrituras_core::{ChatMessage, ChatRole, ClaudeClient, Config, OpenAIClient, Provider, Scripture};
 
 /// Convert a character index to a byte index for UTF-8 safe string operations
 fn char_to_byte_index(s: &str, char_idx: usize) -> usize {
@@ -425,7 +422,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                             if let Some(model) = new_model {
                                 app.selected_model = model.clone();
                                 // Save auto-selected model to config
-                                let _ = crate::config::Config::save_default_model(&model);
+                                let _ = Config::save_default_model(&model);
                             }
                         }
                         app.show_provider_picker = false;
@@ -966,7 +963,7 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
 
 fn build_query_prompt(
     chat_history: &[ChatMessage],
-    context: &[crate::scripture::Scripture],
+    context: &[Scripture],
     browsed_chapters: &[(String, i32)],
     current_reading: Option<&str>,
 ) -> String {

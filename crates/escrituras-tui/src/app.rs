@@ -1,13 +1,10 @@
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
-use crate::embeddings::EmbeddingsDb;
-use crate::scripture::{Scripture, ScriptureDb, ScriptureRange};
-use crate::ollama::OllamaClient;
-use crate::claude::ClaudeClient;
-use crate::openai::OpenAIClient;
-use crate::provider::Provider;
-use crate::config::Config;
+use escrituras_core::{
+    ChatMessage, ClaudeClient, Config, EmbeddingsDb, OllamaClient, OpenAIClient, Provider,
+    Scripture, ScriptureDb, ScriptureRange,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -60,17 +57,7 @@ pub enum FocusPane {
     Input,  // Query input box (AI mode only)
 }
 
-#[derive(Debug, Clone)]
-pub struct ChatMessage {
-    pub role: ChatRole,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChatRole {
-    User,
-    Assistant,
-}
+// ChatMessage and ChatRole are re-exported from escrituras_core
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchFocus {
@@ -1264,7 +1251,7 @@ impl App {
                 self.selected_model = model.clone();
                 self.show_model_picker = false;
                 // Save to config
-                let _ = crate::config::Config::save_default_model(&self.selected_model);
+                let _ = Config::save_default_model(&self.selected_model);
             }
         }
     }

@@ -1,0 +1,33 @@
+[package]
+name = "escrituras-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core library for LDS scripture study - data access, search, and AI integration"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for AI providers
+reqwest = { version = "0.11", features = ["json"] }
+
+# Utilities
+anyhow = "1.0"
+regex = "1.0"
+rust-stemmers = "1.2"
+dirs = "5.0"
+rusqlite = { version = "0.29", features = ["bundled"] }
+
+# Semantic search (local ONNX-based embeddings)
+fastembed = { version = "=5.5.0", default-features = false, features = ["ort-download-binaries", "hf-hub-native-tls"] }
+ndarray = "0.16"
+ndarray-npy = "0.9"
+
+[dev-dependencies]
+tempfile = "3.10"
