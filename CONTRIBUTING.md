@@ -2,6 +2,26 @@
 
 This document is for maintainers and AI agents working on this project.
 
+## Workspace Architecture
+
+The project is organized as a Cargo workspace with three crates:
+
+| Crate | Path | Purpose |
+|-------|------|---------|
+| `escrituras-core` | `crates/escrituras-core/` | Shared library (scripture data, search, AI providers). No UI dependencies. |
+| `escrituras-tui` | `crates/escrituras-tui/` | Terminal UI using ratatui |
+| `escrituras-tauri` | `crates/escrituras-tauri/` | Tauri desktop app (scaffolding) |
+
+### Adding New Features
+
+- **Core logic** (data, search, AI): Add to `escrituras-core`
+- **TUI-specific code** (rendering, keyboard): Add to `escrituras-tui`
+- **Desktop app features**: Add to `escrituras-tauri`
+
+### Key Principle
+
+Business logic belongs in `escrituras-core` so both TUI and Tauri can use it. The TUI and Tauri crates should be thin wrappers over core functionality.
+
 ## Skills System
 
 Scripture study skills live in `skills/scriptures-*/SKILL.md`. These are installed to users' `~/.claude/skills/` directories.
@@ -56,7 +76,7 @@ description: ...
 
 ## MCP Server
 
-The MCP server (`src/mcp.rs`) exposes tools that skills use:
+The MCP server (`crates/escrituras-core/src/mcp.rs`) exposes tools that skills use:
 
 - `mcp__scriptures__lookup_verse` - Get verse by reference
 - `mcp__scriptures__lookup_chapter` - Get full chapter
@@ -97,9 +117,10 @@ curl -sSL .../install.sh | zsh
 
 ## Release Checklist
 
-- [ ] Bump Cargo.toml version
+- [ ] Bump version in root `Cargo.toml` (`[workspace.package]` section)
 - [ ] Bump any modified skill versions
 - [ ] Verify shell scripts work with both bash and zsh
+- [ ] Run `cargo test` to verify all tests pass
 - [ ] Tag release: `git tag v0.X.0 && git push --tags`
-- [ ] GitHub Actions builds and uploads binaries
+- [ ] GitHub Actions builds and uploads TUI binaries
 - [ ] Users get updates via `install.sh`

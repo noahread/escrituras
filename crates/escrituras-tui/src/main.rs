@@ -1,18 +1,10 @@
 mod app;
-mod claude;
-mod config;
-mod embeddings;
 mod handler;
-mod mcp;
-mod ollama;
-mod openai;
-mod provider;
-mod scripture;
 mod tui;
 mod ui;
 
 use anyhow::Result;
-use app::{ChatMessage, ChatRole};
+use escrituras_core::{download_embedding_model, mcp, ChatMessage, ChatRole, EmbeddingsDb, ScriptureDb};
 use std::time::Duration;
 
 #[tokio::main]
@@ -33,26 +25,9 @@ async fn main() -> Result<()> {
     run_tui().await
 }
 
-/// Download the embedding model for semantic search (called during installation)
-fn download_embedding_model() -> Result<()> {
-    use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-
-    println!("Downloading embedding model for semantic search...");
-
-    // Show progress since we're not in TUI mode
-    let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
-        .with_show_download_progress(true);
-
-    TextEmbedding::try_new(options)
-        .map_err(|e| anyhow::anyhow!("Failed to download model: {}", e))?;
-
-    println!("✓ Embedding model cached successfully");
-    Ok(())
-}
-
 async fn run_mcp_server() -> Result<()> {
     // Load scripture database - try local path first, then config directory
-    let mut scripture_db = scripture::ScriptureDb::new();
+    let mut scripture_db = ScriptureDb::new();
     let local_scripture_path = "lds-scriptures-2020.12.08/json/lds-scriptures-json.txt";
     let config_scripture_path = dirs::config_dir()
         .map(|p| p.join("escrituras/lds-scriptures-2020.12.08/json/lds-scriptures-json.txt"));
@@ -77,10 +52,10 @@ async fn run_mcp_server() -> Result<()> {
             .map(|p| p.join("escrituras/data"));
 
         if local_path.join("scripture_embeddings.npy").exists() {
-            embeddings::EmbeddingsDb::load(local_path).ok()
+            EmbeddingsDb::load(local_path).ok()
         } else if let Some(ref cfg_path) = config_path {
             if cfg_path.join("scripture_embeddings.npy").exists() {
-                embeddings::EmbeddingsDb::load(cfg_path).ok()
+                EmbeddingsDb::load(cfg_path).ok()
             } else {
                 None
             }

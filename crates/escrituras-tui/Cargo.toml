@@ -1,0 +1,32 @@
+[package]
+name = "escrituras-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TUI for LDS scripture study with AI-powered insights"
+keywords = ["scriptures", "lds", "tui", "bible", "book-of-mormon"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "scriptures"
+path = "src/main.rs"
+
+[dependencies]
+# Core library
+escrituras-core = { path = "../escrituras-core" }
+
+# TUI Framework
+ratatui = "0.28"
+crossterm = { version = "0.27", features = ["event-stream"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+futures-util = "0.3"
+
+# Utilities (still needed for TUI-specific code)
+anyhow = "1.0"
+dirs = "5.0"
+
+[dev-dependencies]
+tempfile = "3.10"

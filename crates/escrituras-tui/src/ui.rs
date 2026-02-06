@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
 use crate::app::{App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, NavLevel, Screen, SearchFocus};
-use crate::provider::Provider;
+use escrituras_core::{Provider, Scripture};
 
 /// Ensure the selected item in a list is visible by adjusting the ListState offset.
 /// This clamps the offset to a valid range where the selected item is always visible.
@@ -88,7 +88,7 @@ struct ChapterLayout {
 }
 
 /// Calculate the line-based layout for all verses in a chapter
-fn calculate_chapter_layout(verses: &[crate::scripture::Scripture], width: usize) -> ChapterLayout {
+fn calculate_chapter_layout(verses: &[Scripture], width: usize) -> ChapterLayout {
     let mut layouts = Vec::with_capacity(verses.len());
     let mut current_line = 0;
 
@@ -949,7 +949,7 @@ fn render_search_screen(app: &mut App, frame: &mut Frame, area: Rect) {
 }
 
 fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
-    use crate::app::ChatRole;
+    use escrituras_core::ChatRole;
 
     // Split layout: AI panel on left, scripture content on right (like browse)
     let [ai_area, content_area] = Layout::horizontal([

@@ -7,6 +7,21 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+/// Download the embedding model for semantic search (called during installation)
+pub fn download_embedding_model() -> Result<()> {
+    println!("Downloading embedding model for semantic search...");
+
+    // Show progress since we're not in TUI mode
+    let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
+        .with_show_download_progress(true);
+
+    TextEmbedding::try_new(options)
+        .map_err(|e| anyhow!("Failed to download model: {}", e))?;
+
+    println!("✓ Embedding model cached successfully");
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct Metadata {
     verse_title: String,
