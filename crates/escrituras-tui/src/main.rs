@@ -4,9 +4,7 @@ mod tui;
 mod ui;
 
 use anyhow::Result;
-use escrituras_core::{
-    download_embedding_model, mcp, ChatMessage, ChatRole, EmbeddingsDb, ScriptureDb,
-};
+use escrituras_core::{download_embedding_model, mcp, ChatMessage, ChatRole, DataPaths};
 use std::time::Duration;
 
 #[tokio::main]
@@ -28,46 +26,9 @@ async fn main() -> Result<()> {
 }
 
 async fn run_mcp_server() -> Result<()> {
-    // Load scripture database - try local path first, then config directory
-    let mut scripture_db = ScriptureDb::new();
-    let local_scripture_path = "lds-scriptures-2020.12.08/json/lds-scriptures-json.txt";
-    let config_scripture_path = dirs::config_dir()
-        .map(|p| p.join("escrituras/lds-scriptures-2020.12.08/json/lds-scriptures-json.txt"));
-
-    if std::path::Path::new(local_scripture_path).exists() {
-        scripture_db.load_from_json(local_scripture_path).await?;
-    } else if let Some(ref cfg_path) = config_scripture_path {
-        if cfg_path.exists() {
-            scripture_db
-                .load_from_json(cfg_path.to_str().unwrap())
-                .await?;
-        } else {
-            anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
-        }
-    } else {
-        anyhow::bail!(
-            "Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/"
-        );
-    }
-
-    // Load embeddings if available (for semantic search)
-    // Try local data/ directory first, then ~/.config/escrituras/data/
-    let embeddings_db = {
-        let local_path = std::path::Path::new("data");
-        let config_path = dirs::config_dir().map(|p| p.join("escrituras/data"));
-
-        if local_path.join("scripture_embeddings.npy").exists() {
-            EmbeddingsDb::load(local_path).ok()
-        } else if let Some(ref cfg_path) = config_path {
-            if cfg_path.join("scripture_embeddings.npy").exists() {
-                EmbeddingsDb::load(cfg_path).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
+    let paths = DataPaths::discover()?;
+    let scripture_db = paths.load_scriptures().await?;
+    let embeddings_db = paths.load_embeddings();
 
     mcp::run_mcp_server(scripture_db, embeddings_db);
     Ok(())

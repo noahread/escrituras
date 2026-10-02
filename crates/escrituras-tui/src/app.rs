@@ -1,6 +1,6 @@
 use escrituras_core::{
-    ChatMessage, ClaudeClient, Config, EmbeddingsDb, OllamaClient, OpenAIClient, Provider,
-    Scripture, ScriptureDb, ScriptureRange,
+    ChatMessage, ClaudeClient, Config, DataPaths, EmbeddingsDb, OllamaClient, OpenAIClient,
+    Provider, Scripture, ScriptureDb, ScriptureRange,
 };
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
@@ -220,26 +220,8 @@ pub struct App {
 
 impl App {
     pub async fn new() -> anyhow::Result<Self> {
-        let mut scripture_db = ScriptureDb::new();
-
-        // Try local path first, then config directory
-        let local_path = "lds-scriptures-2020.12.08/json/lds-scriptures-json.txt";
-        let config_path = dirs::config_dir()
-            .map(|p| p.join("escrituras/lds-scriptures-2020.12.08/json/lds-scriptures-json.txt"));
-
-        if std::path::Path::new(local_path).exists() {
-            scripture_db.load_from_json(local_path).await?;
-        } else if let Some(ref cfg_path) = config_path {
-            if cfg_path.exists() {
-                scripture_db
-                    .load_from_json(cfg_path.to_str().unwrap())
-                    .await?;
-            } else {
-                anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
-            }
-        } else {
-            anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
-        }
+        let paths = DataPaths::discover()?;
+        let scripture_db = paths.load_scriptures().await?;
 
         let ollama = OllamaClient::new("http://localhost:11434");
 
@@ -270,23 +252,7 @@ impl App {
             .unwrap_or_else(|| "gemma3:latest".to_string());
 
         // Load embeddings if available (for semantic search)
-        // Try local data/ directory first, then ~/.config/escrituras/data/
-        let embeddings_db = {
-            let local_path = std::path::Path::new("data");
-            let config_path = dirs::config_dir().map(|p| p.join("escrituras/data"));
-
-            if local_path.join("scripture_embeddings.npy").exists() {
-                EmbeddingsDb::load(local_path).ok()
-            } else if let Some(ref cfg_path) = config_path {
-                if cfg_path.join("scripture_embeddings.npy").exists() {
-                    EmbeddingsDb::load(cfg_path).ok()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
+        let embeddings_db = paths.load_embeddings();
 
         let cached_volumes: Vec<String> = scripture_db.get_volumes().to_vec();
 

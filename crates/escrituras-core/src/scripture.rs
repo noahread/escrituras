@@ -69,7 +69,7 @@ impl ScriptureDb {
         }
     }
 
-    pub async fn load_from_json(&mut self, path: &str) -> Result<()> {
+    pub async fn load_from_json(&mut self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let content = tokio::fs::read_to_string(path).await?;
         self.scriptures = serde_json::from_str(&content)?;
         self.build_indexes();

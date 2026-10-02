@@ -7,7 +7,7 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use escrituras_core::{EmbeddingsDb, Scripture, ScriptureDb};
+use escrituras_core::{DataPaths, EmbeddingsDb, Scripture, ScriptureDb};
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
@@ -153,23 +153,31 @@ fn extract_references(state: State<Mutex<AppState>>, text: &str) -> Vec<String> 
         .collect()
 }
 
+/// Load scripture data and embeddings from the standard locations
+async fn load_state() -> anyhow::Result<AppState> {
+    let paths = DataPaths::discover()?;
+    Ok(AppState {
+        scripture_db: paths.load_scriptures().await?,
+        embeddings_db: paths.load_embeddings(),
+    })
+}
+
 // ============================================================================
 // Main Entry Point
 // ============================================================================
 
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .setup(|_app| {
-            // Initialize state - this would normally load data asynchronously
-            // For now, we create empty state. The actual app would load scripture data
-            // during startup or on-demand.
-            Ok(())
-        })
-        .manage(Mutex::new(AppState {
+    let state = tauri::async_runtime::block_on(load_state()).unwrap_or_else(|e| {
+        eprintln!("Failed to load scripture data: {e:#}");
+        AppState {
             scripture_db: ScriptureDb::new(),
             embeddings_db: None,
-        }))
+        }
+    });
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .manage(Mutex::new(state))
         .invoke_handler(tauri::generate_handler![
             get_volumes,
             get_books,
