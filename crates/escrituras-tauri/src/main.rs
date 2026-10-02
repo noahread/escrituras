@@ -91,7 +91,7 @@ fn lookup_verse(state: State<Mutex<AppState>>, reference: &str) -> Option<Script
     state
         .scripture_db
         .get_by_title(reference)
-        .map(|s| ScriptureResult::from(s))
+        .map(ScriptureResult::from)
 }
 
 /// Search scriptures by keyword
