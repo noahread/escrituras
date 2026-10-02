@@ -697,7 +697,7 @@ impl App {
         let mut seen_titles: HashSet<String> = HashSet::new();
 
         // Try semantic search if embeddings are available (uses local ONNX model)
-        if let Some(embeddings) = &mut self.embeddings_db {
+        if let Some(embeddings) = &self.embeddings_db {
             // Search embeddings for semantically similar verses (embeds query locally)
             if let Ok(semantic_matches) = embeddings.search(query, semantic_limit) {
                 // Convert to Scripture objects

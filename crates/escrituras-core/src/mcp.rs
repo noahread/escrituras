@@ -184,7 +184,7 @@ fn handle_tool_call(
     id: Option<serde_json::Value>,
     params: &serde_json::Value,
     db: &ScriptureDb,
-    embeddings: &mut Option<EmbeddingsDb>,
+    embeddings: Option<&EmbeddingsDb>,
 ) -> McpResponse {
     let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     let arguments = params
@@ -298,7 +298,7 @@ fn handle_search_scriptures(
     id: Option<serde_json::Value>,
     args: &serde_json::Value,
     db: &ScriptureDb,
-    embeddings: &mut Option<EmbeddingsDb>,
+    embeddings: Option<&EmbeddingsDb>,
 ) -> McpResponse {
     let query = match args.get("query").and_then(|v| v.as_str()) {
         Some(q) => q,
@@ -478,7 +478,7 @@ fn handle_list_books(
     )
 }
 
-pub fn run_mcp_server(db: ScriptureDb, mut embeddings: Option<EmbeddingsDb>) {
+pub fn run_mcp_server(db: ScriptureDb, embeddings: Option<EmbeddingsDb>) {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
@@ -508,7 +508,7 @@ pub fn run_mcp_server(db: ScriptureDb, mut embeddings: Option<EmbeddingsDb>) {
             "initialize" => handle_initialize(request.id),
             "notifications/initialized" => continue, // Notification, no response
             "tools/list" => handle_tools_list(request.id),
-            "tools/call" => handle_tool_call(request.id, &request.params, &db, &mut embeddings),
+            "tools/call" => handle_tool_call(request.id, &request.params, &db, embeddings.as_ref()),
             _ => McpResponse::error(
                 request.id,
                 -32601,

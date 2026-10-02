@@ -116,11 +116,11 @@ fn semantic_search(
     query: &str,
     limit: usize,
 ) -> Result<Vec<SearchResult>, String> {
-    let mut state = state.lock().unwrap();
+    let state = state.lock().unwrap();
 
     let embeddings_db = state
         .embeddings_db
-        .as_mut()
+        .as_ref()
         .ok_or_else(|| "Embeddings not available".to_string())?;
 
     let results = embeddings_db
