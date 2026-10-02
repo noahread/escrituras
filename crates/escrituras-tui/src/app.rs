@@ -1,6 +1,6 @@
 use escrituras_core::{
-    combined_search, ChatMessage, ClaudeClient, Config, DataPaths, EmbeddingsDb, OllamaClient,
-    OpenAIClient, Provider, Scripture, ScriptureDb, ScriptureRange,
+    combined_search, Assistant, ChatMessage, Config, DataPaths, EmbeddingsDb, KeySource, Provider,
+    Scripture, ScriptureDb, ScriptureRange,
 };
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
@@ -185,8 +185,7 @@ pub struct App {
 
     // Provider state
     pub current_provider: Provider,
-    pub claude_client: Option<ClaudeClient>,
-    pub openai_client: Option<OpenAIClient>,
+    pub assistant: Assistant,
     pub show_provider_picker: bool,
     pub provider_picker_state: ListState,
 
@@ -207,7 +206,6 @@ pub struct App {
     // Data
     pub scripture_db: ScriptureDb,
     pub embeddings_db: Option<EmbeddingsDb>,
-    pub ollama: OllamaClient,
     pub selected_model: String,
 
     // Cached navigation data
@@ -222,8 +220,6 @@ impl App {
         let paths = DataPaths::discover()?;
         let scripture_db = paths.load_scriptures().await?;
 
-        let ollama = OllamaClient::new("http://localhost:11434");
-
         // Load config
         let config = Config::load().unwrap_or_else(|_| Config::new());
 
@@ -234,16 +230,8 @@ impl App {
             .and_then(|p| p.parse::<Provider>().ok())
             .unwrap_or(Provider::Ollama);
 
-        // Initialize API clients - check env vars first, then config
-        let claude_key = std::env::var("ANTHROPIC_API_KEY")
-            .ok()
-            .or_else(|| config.claude_api_key.clone());
-        let claude_client = claude_key.as_ref().map(|k| ClaudeClient::new(k));
-
-        let openai_key = std::env::var("OPENAI_API_KEY")
-            .ok()
-            .or_else(|| config.openai_api_key.clone());
-        let openai_client = openai_key.as_ref().map(|k| OpenAIClient::new(k));
+        // Initialize API clients - env vars first, then config
+        let assistant = Assistant::from_config(&config);
 
         // Load default model from config
         let selected_model = config
@@ -316,8 +304,7 @@ impl App {
             model_picker_state: ListState::default(),
 
             current_provider,
-            claude_client,
-            openai_client,
+            assistant,
             show_provider_picker: false,
             provider_picker_state: ListState::default(),
 
@@ -334,7 +321,6 @@ impl App {
 
             scripture_db,
             embeddings_db,
-            ollama,
             selected_model,
 
             cached_volumes,
@@ -1247,37 +1233,9 @@ impl App {
         self.provider_picker_state.select(Some(i.saturating_sub(1)));
     }
 
-    pub fn get_models_for_provider(&self, provider: Provider) -> Vec<String> {
-        match provider {
-            Provider::Ollama => Vec::new(), // Will be fetched async
-            Provider::Claude => ClaudeClient::list_models(),
-            Provider::OpenAI => OpenAIClient::list_models(),
-        }
-    }
-
-    /// Returns the source of the API key for a provider: "env", "config", or None
-    pub fn get_key_source(&self, provider: Provider) -> Option<&'static str> {
-        match provider {
-            Provider::Ollama => Some("local"),
-            Provider::Claude => {
-                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                    Some("env")
-                } else if self.claude_client.is_some() {
-                    Some("config")
-                } else {
-                    None
-                }
-            }
-            Provider::OpenAI => {
-                if std::env::var("OPENAI_API_KEY").is_ok() {
-                    Some("env")
-                } else if self.openai_client.is_some() {
-                    Some("config")
-                } else {
-                    None
-                }
-            }
-        }
+    /// Where the API key for a provider comes from, or None if it needs one
+    pub fn get_key_source(&self, provider: Provider) -> Option<KeySource> {
+        self.assistant.key_source(provider)
     }
 
     /// Scroll adjustment is now handled in render_content() based on line_scroll

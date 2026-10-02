@@ -2,7 +2,7 @@ use crate::app::{
     App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, NavLevel, Screen,
     SearchFocus,
 };
-use escrituras_core::{Provider, Scripture};
+use escrituras_core::{KeySource, Provider, Scripture};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
@@ -1344,10 +1344,10 @@ fn render_provider_picker(app: &mut App, frame: &mut Frame, area: Rect) {
             let is_current = *provider == app.current_provider;
 
             let status = match key_source {
-                Some("env") => "(env var)",
-                Some("config") => "(configured)",
-                Some("local") => "(local)",
-                _ => "(needs key)",
+                Some(KeySource::Env) => "(env var)",
+                Some(KeySource::Config) => "(configured)",
+                Some(KeySource::Local) => "(local)",
+                None => "(needs key)",
             };
             let prefix = if is_current { "* " } else { "  " };
 
