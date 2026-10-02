@@ -1,12 +1,12 @@
-use std::io::{self, Stderr};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyEvent, KeyEventKind, MouseEvent},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
 use futures_util::StreamExt;
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io::{self, Stderr};
 use tokio::sync::mpsc;
 
 pub type Tui = Terminal<CrosstermBackend<Stderr>>;

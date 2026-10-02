@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use rust_stemmers::{Algorithm, Stemmer};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Scripture {
@@ -29,9 +29,15 @@ pub struct ScriptureRange {
 impl ScriptureRange {
     pub fn display_title(&self) -> String {
         if self.start_verse == self.end_verse {
-            format!("{} {}:{}", self.book_title, self.chapter_number, self.start_verse)
+            format!(
+                "{} {}:{}",
+                self.book_title, self.chapter_number, self.start_verse
+            )
         } else {
-            format!("{} {}:{}-{}", self.book_title, self.chapter_number, self.start_verse, self.end_verse)
+            format!(
+                "{} {}:{}-{}",
+                self.book_title, self.chapter_number, self.start_verse, self.end_verse
+            )
         }
     }
 
@@ -47,6 +53,12 @@ pub struct ScriptureDb {
     chapters_by_book: HashMap<String, Vec<i32>>,
 }
 
+impl Default for ScriptureDb {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScriptureDb {
     pub fn new() -> Self {
         Self {
@@ -56,24 +68,24 @@ impl ScriptureDb {
             chapters_by_book: HashMap::new(),
         }
     }
-    
+
     pub async fn load_from_json(&mut self, path: &str) -> Result<()> {
         let content = tokio::fs::read_to_string(path).await?;
         self.scriptures = serde_json::from_str(&content)?;
         self.build_indexes();
         Ok(())
     }
-    
+
     fn build_indexes(&mut self) {
         let mut volumes_order = Vec::new();
         let mut books_by_vol: HashMap<String, Vec<String>> = HashMap::new();
         let mut chapters_by_bk: HashMap<String, Vec<i32>> = HashMap::new();
-        
+
         // Track seen items to maintain order while avoiding duplicates
         let mut seen_volumes = HashSet::new();
         let mut seen_books: HashMap<String, HashSet<String>> = HashMap::new();
         let mut seen_chapters: HashMap<String, HashSet<i32>> = HashMap::new();
-        
+
         // Process in original order to preserve canonical sequence
         for scripture in &self.scriptures {
             // Collect volumes in order
@@ -81,24 +93,24 @@ impl ScriptureDb {
                 volumes_order.push(scripture.volume_title.clone());
                 seen_volumes.insert(scripture.volume_title.clone());
             }
-            
+
             // Collect books by volume in order
             if !seen_books
                 .entry(scripture.volume_title.clone())
                 .or_default()
-                .contains(&scripture.book_title) 
+                .contains(&scripture.book_title)
             {
                 books_by_vol
                     .entry(scripture.volume_title.clone())
                     .or_default()
                     .push(scripture.book_title.clone());
-                    
+
                 seen_books
                     .get_mut(&scripture.volume_title)
                     .unwrap()
                     .insert(scripture.book_title.clone());
             }
-            
+
             // Collect chapters by book in order
             if !seen_chapters
                 .entry(scripture.book_title.clone())
@@ -109,43 +121,40 @@ impl ScriptureDb {
                     .entry(scripture.book_title.clone())
                     .or_default()
                     .push(scripture.chapter_number);
-                    
+
                 seen_chapters
                     .get_mut(&scripture.book_title)
                     .unwrap()
                     .insert(scripture.chapter_number);
             }
         }
-        
+
         // Store in order (no sorting needed since we preserved original order)
         self.volumes = volumes_order;
         self.books_by_volume = books_by_vol;
-        
+
         // Sort chapters numerically for each book
         for chapters in chapters_by_bk.values_mut() {
             chapters.sort();
         }
         self.chapters_by_book = chapters_by_bk;
     }
-    
+
     pub fn get_volumes(&self) -> &[String] {
         &self.volumes
     }
-    
+
     pub fn get_books_for_volume(&self, volume: &str) -> Vec<String> {
         self.books_by_volume
             .get(volume)
             .cloned()
             .unwrap_or_default()
     }
-    
+
     pub fn get_chapters_for_book(&self, book: &str) -> Vec<i32> {
-        self.chapters_by_book
-            .get(book)
-            .cloned()
-            .unwrap_or_default()
+        self.chapters_by_book.get(book).cloned().unwrap_or_default()
     }
-    
+
     pub fn get_verses_for_chapter(&self, book: &str, chapter: i32) -> Vec<&Scripture> {
         self.scriptures
             .iter()
@@ -155,7 +164,9 @@ impl ScriptureDb {
 
     /// Get a scripture by its verse title (e.g., "John 3:16")
     pub fn get_by_title(&self, verse_title: &str) -> Option<&Scripture> {
-        self.scriptures.iter().find(|s| s.verse_title == verse_title)
+        self.scriptures
+            .iter()
+            .find(|s| s.verse_title == verse_title)
     }
 
     /// Get all verses for a volume in canonical order (for Focus Mode navigation)
@@ -207,9 +218,9 @@ impl ScriptureDb {
                     .collect();
 
                 // All stemmed query terms must appear in stemmed text
-                stemmed_terms.iter().all(|term| {
-                    text_stems.iter().any(|text_stem| text_stem == term)
-                })
+                stemmed_terms
+                    .iter()
+                    .all(|term| text_stems.iter().any(|text_stem| text_stem == term))
             })
             .take(limit)
             .collect()
@@ -238,7 +249,9 @@ impl ScriptureDb {
                     let chapter_str = caps.name("chapter").map(|m| m.as_str()).unwrap_or("");
                     let verse_str = caps.name("verse").map(|m| m.as_str()).unwrap_or("");
 
-                    if let (Ok(chapter), Ok(start_verse)) = (chapter_str.parse::<i32>(), verse_str.parse::<i32>()) {
+                    if let (Ok(chapter), Ok(start_verse)) =
+                        (chapter_str.parse::<i32>(), verse_str.parse::<i32>())
+                    {
                         // Build full book name with number prefix if present
                         let full_book_name = if !num_prefix.is_empty() {
                             format!("{} {}", num_prefix, book_name)
@@ -247,9 +260,12 @@ impl ScriptureDb {
                         };
 
                         // Verify the reference exists in our database
-                        if let Some(scripture) = self.find_exact_scripture(&full_book_name, chapter, start_verse) {
+                        if let Some(scripture) =
+                            self.find_exact_scripture(&full_book_name, chapter, start_verse)
+                        {
                             // Determine end verse (same as start for single verse references)
-                            let end_verse = caps.name("endverse")
+                            let end_verse = caps
+                                .name("endverse")
                                 .and_then(|m| m.as_str().parse::<i32>().ok())
                                 .unwrap_or(start_verse);
 
@@ -282,17 +298,19 @@ impl ScriptureDb {
     fn find_exact_scripture(&self, book_name: &str, chapter: i32, verse: i32) -> Option<Scripture> {
         for scripture in &self.scriptures {
             // Try exact book title match
-            if (scripture.book_title.eq_ignore_ascii_case(book_name) ||
-                scripture.book_short_title.eq_ignore_ascii_case(book_name)) &&
-               scripture.chapter_number == chapter &&
-               scripture.verse_number == verse {
+            if (scripture.book_title.eq_ignore_ascii_case(book_name)
+                || scripture.book_short_title.eq_ignore_ascii_case(book_name))
+                && scripture.chapter_number == chapter
+                && scripture.verse_number == verse
+            {
                 return Some(scripture.clone());
             }
 
             // Try fuzzy matching for common variations
-            if self.book_matches_fuzzy(&scripture.book_title, book_name) &&
-               scripture.chapter_number == chapter &&
-               scripture.verse_number == verse {
+            if self.book_matches_fuzzy(&scripture.book_title, book_name)
+                && scripture.chapter_number == chapter
+                && scripture.verse_number == verse
+            {
                 return Some(scripture.clone());
             }
         }
@@ -569,7 +587,11 @@ mod tests {
         let text = "4 Nephi 1:1 begins the account.";
         let refs = db.extract_scripture_references(text);
 
-        assert_eq!(refs.len(), 1, "Should find 4 Nephi 1:1 - this was previously a bug");
+        assert_eq!(
+            refs.len(),
+            1,
+            "Should find 4 Nephi 1:1 - this was previously a bug"
+        );
         assert_eq!(refs[0].book_title, "4 Nephi");
         assert_eq!(refs[0].chapter_number, 1);
         assert_eq!(refs[0].start_verse, 1);
@@ -666,7 +688,11 @@ mod tests {
         let text = "Doctrine and Covenants 4:2 discusses service.";
         let refs = db.extract_scripture_references(text);
 
-        assert_eq!(refs.len(), 1, "Should find full 'Doctrine and Covenants' reference");
+        assert_eq!(
+            refs.len(),
+            1,
+            "Should find full 'Doctrine and Covenants' reference"
+        );
         assert_eq!(refs[0].book_title, "Doctrine and Covenants");
         assert_eq!(refs[0].chapter_number, 4);
         assert_eq!(refs[0].start_verse, 2);
@@ -715,7 +741,11 @@ mod tests {
 
         // Current behavior: "See John" is matched as book name, not found in DB
         // Expected behavior after fix: refs.len() == 1
-        assert_eq!(refs.len(), 0, "Known limitation: preceding words get captured");
+        assert_eq!(
+            refs.len(),
+            0,
+            "Known limitation: preceding words get captured"
+        );
     }
 
     // ScriptureRange tests
@@ -771,7 +801,9 @@ mod tests {
         // Alma 32:21 contains "faith" - searching "faithful" should match via stemming
         let results = db.search("faith", 10);
         assert!(!results.is_empty(), "Should find verses containing 'faith'");
-        assert!(results.iter().any(|s| s.book_title == "Alma" && s.chapter_number == 32));
+        assert!(results
+            .iter()
+            .any(|s| s.book_title == "Alma" && s.chapter_number == 32));
     }
 
     #[test]
@@ -796,7 +828,9 @@ mod tests {
         // John 3:16 contains "loved" - searching "love" should match via stemming (love -> lov, loved -> lov)
         let results = db.search("love", 10);
         assert!(
-            results.iter().any(|s| s.scripture_text.to_lowercase().contains("loved")),
+            results
+                .iter()
+                .any(|s| s.scripture_text.to_lowercase().contains("loved")),
             "Searching 'love' should find verses with 'loved'"
         );
     }
@@ -812,6 +846,9 @@ mod tests {
     fn test_search_punctuation_only() {
         let db = create_test_db();
         let results = db.search("...", 10);
-        assert!(results.is_empty(), "Punctuation-only query should return no results");
+        assert!(
+            results.is_empty(),
+            "Punctuation-only query should return no results"
+        );
     }
 }
