@@ -1,10 +1,9 @@
 use escrituras_core::{
-    ChatMessage, ClaudeClient, Config, DataPaths, EmbeddingsDb, OllamaClient, OpenAIClient,
-    Provider, Scripture, ScriptureDb, ScriptureRange,
+    combined_search, ChatMessage, ClaudeClient, Config, DataPaths, EmbeddingsDb, OllamaClient,
+    OpenAIClient, Provider, Scripture, ScriptureDb, ScriptureRange,
 };
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -656,37 +655,17 @@ impl App {
             return;
         }
 
-        let query = &self.search_input.clone();
-        let limit = 50;
-        let semantic_limit = 20; // Show up to 20 semantic results first
-        let mut combined_results: Vec<Scripture> = Vec::new();
-        let mut seen_titles: HashSet<String> = HashSet::new();
-
-        // Try semantic search if embeddings are available (uses local ONNX model)
-        if let Some(embeddings) = &self.embeddings_db {
-            // Search embeddings for semantically similar verses (embeds query locally)
-            if let Ok(semantic_matches) = embeddings.search(query, semantic_limit) {
-                // Convert to Scripture objects
-                for (verse_title, _score) in semantic_matches {
-                    if let Some(scripture) = self.scripture_db.get_by_title(&verse_title) {
-                        seen_titles.insert(verse_title);
-                        combined_results.push(scripture.clone());
-                    }
-                }
-            }
-        }
-
-        // Add keyword search results (deduped)
-        let keyword_results = self.scripture_db.search(query, limit);
-        for scripture in keyword_results {
-            if !seen_titles.contains(&scripture.verse_title) {
-                seen_titles.insert(scripture.verse_title.clone());
-                combined_results.push(scripture.clone());
-                if combined_results.len() >= limit {
-                    break;
-                }
-            }
-        }
+        // Up to 20 semantic results first, 50 results in total
+        let combined_results: Vec<Scripture> = combined_search(
+            &self.scripture_db,
+            self.embeddings_db.as_ref(),
+            &self.search_input,
+            20,
+            50,
+        )
+        .into_iter()
+        .map(|hit| hit.scripture.clone())
+        .collect();
 
         self.search_results = combined_results;
         if !self.search_results.is_empty() {

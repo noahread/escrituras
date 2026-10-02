@@ -69,6 +69,14 @@ impl ScriptureDb {
         }
     }
 
+    /// Build a database from verses already in canonical order
+    pub fn from_scriptures(scriptures: Vec<Scripture>) -> Self {
+        let mut db = Self::new();
+        db.scriptures = scriptures;
+        db.build_indexes();
+        db
+    }
+
     pub async fn load_from_json(&mut self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let content = tokio::fs::read_to_string(path).await?;
         self.scriptures = serde_json::from_str(&content)?;
@@ -508,10 +516,7 @@ mod tests {
             },
         ];
 
-        let mut db = ScriptureDb::new();
-        db.scriptures = scriptures;
-        db.build_indexes();
-        db
+        ScriptureDb::from_scriptures(scriptures)
     }
 
     // Basic reference extraction tests
