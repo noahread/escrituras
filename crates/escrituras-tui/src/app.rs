@@ -935,173 +935,64 @@ impl App {
 
     /// Navigate to the next chapter within the current volume.
     /// Returns true if navigation was successful, false if at volume boundary.
-    /// Uses atomic state updates - only modifies navigation state after verses load successfully.
     fn navigate_to_next_chapter(&mut self) -> bool {
-        let volume = match self.selected_volume() {
-            Some(v) => v.clone(),
-            None => return false,
-        };
-
-        let book = match self.selected_book() {
-            Some(b) => b.clone(),
-            None => return false,
-        };
-
-        // ALWAYS refresh cached_chapters from the database to ensure consistency
-        // This fixes issues where initial navigation left stale state
-        self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
-        if self.cached_chapters.is_empty() {
-            return false;
-        }
-
-        let current_chapter_idx = match self.chapter_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        // Try to go to next chapter in current book
-        let next_chapter_idx = current_chapter_idx + 1;
-        if next_chapter_idx < self.cached_chapters.len() {
-            // Get the chapter number BEFORE updating state
-            let next_chapter = match self.cached_chapters.get(next_chapter_idx) {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update state if successful
-            if self.load_verses_for(&book, next_chapter) {
-                self.chapter_state.select(Some(next_chapter_idx));
-                return true;
-            }
-            return false;
-        }
-
-        // At last chapter of book - try to go to next book in volume
-        let books = self.scripture_db.get_books_for_volume(&volume);
-        let current_book_idx = match self.book_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        let next_book_idx = current_book_idx + 1;
-        if next_book_idx < books.len() {
-            // Get the next book name
-            let next_book = match books.get(next_book_idx) {
-                Some(b) => b.clone(),
-                None => return false,
-            };
-
-            // Load chapters for the new book
-            let new_chapters = self.scripture_db.get_chapters_for_book(&next_book);
-            if new_chapters.is_empty() {
-                return false;
-            }
-
-            // Get first chapter number
-            let first_chapter = match new_chapters.first() {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update ALL state if successful
-            if self.load_verses_for(&next_book, first_chapter) {
-                self.book_state.select(Some(next_book_idx));
-                self.cached_books = books;
-                self.cached_chapters = new_chapters;
-                self.chapter_state.select(Some(0));
-                self.chapter_scroll = 0;
-                return true;
-            }
-        }
-
-        // At last chapter of last book in volume - can't go further
-        false
+        self.navigate_to_adjacent_chapter(true)
     }
 
     /// Navigate to the previous chapter within the current volume.
     /// Returns true if navigation was successful, false if at volume boundary.
-    /// Uses atomic state updates - only modifies navigation state after verses load successfully.
     fn navigate_to_prev_chapter(&mut self) -> bool {
-        let volume = match self.selected_volume() {
-            Some(v) => v.clone(),
-            None => return false,
-        };
+        self.navigate_to_adjacent_chapter(false)
+    }
 
-        let book = match self.selected_book() {
-            Some(b) => b.clone(),
-            None => return false,
+    /// Move to the next or previous chapter, crossing into the adjacent book
+    /// of the same volume when needed. Navigation state is only updated after
+    /// the new chapter's verses load successfully.
+    fn navigate_to_adjacent_chapter(&mut self, forward: bool) -> bool {
+        let Some(book) = self.selected_book().cloned() else {
+            return false;
         };
 
         // ALWAYS refresh cached_chapters from the database to ensure consistency
         // This fixes issues where initial navigation left stale state
         self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
-        if self.cached_chapters.is_empty() {
+        let Some(chapter) = self.selected_chapter() else {
+            return false;
+        };
+
+        let target = if forward {
+            self.scripture_db.next_chapter(&book, chapter)
+        } else {
+            self.scripture_db.previous_chapter(&book, chapter)
+        };
+        let Some((new_book, new_chapter)) = target else {
+            return false;
+        };
+
+        if !self.load_verses_for(&new_book, new_chapter) {
             return false;
         }
 
-        let current_chapter_idx = match self.chapter_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        // Try to go to previous chapter in current book
-        if current_chapter_idx > 0 {
-            let prev_chapter_idx = current_chapter_idx - 1;
-            // Get the chapter number BEFORE updating state
-            let prev_chapter = match self.cached_chapters.get(prev_chapter_idx) {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update state if successful
-            if self.load_verses_for(&book, prev_chapter) {
-                self.chapter_state.select(Some(prev_chapter_idx));
-                return true;
+        let changed_book = new_book != book;
+        if changed_book {
+            if let Some(volume) = self.selected_volume().cloned() {
+                self.cached_books = self.scripture_db.get_books_for_volume(&volume);
             }
-            return false;
+            let book_idx = self.cached_books.iter().position(|b| *b == new_book);
+            self.book_state.select(book_idx);
+            self.cached_chapters = self.scripture_db.get_chapters_for_book(&new_book);
         }
 
-        // At first chapter of book - try to go to previous book in volume
-        let books = self.scripture_db.get_books_for_volume(&volume);
-        let current_book_idx = match self.book_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        if current_book_idx > 0 {
-            let prev_book_idx = current_book_idx - 1;
-            // Get the previous book name
-            let prev_book = match books.get(prev_book_idx) {
-                Some(b) => b.clone(),
-                None => return false,
-            };
-
-            // Load chapters for the previous book
-            let new_chapters = self.scripture_db.get_chapters_for_book(&prev_book);
-            if new_chapters.is_empty() {
-                return false;
-            }
-
-            // Get last chapter index and number
-            let last_chapter_idx = new_chapters.len() - 1;
-            let last_chapter = match new_chapters.get(last_chapter_idx) {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update ALL state if successful
-            if self.load_verses_for(&prev_book, last_chapter) {
-                self.book_state.select(Some(prev_book_idx));
-                self.cached_books = books;
-                self.cached_chapters = new_chapters;
-                self.chapter_state.select(Some(last_chapter_idx));
-                self.chapter_scroll = last_chapter_idx;
-                return true;
-            }
+        let chapter_idx = self
+            .cached_chapters
+            .iter()
+            .position(|&c| c == new_chapter)
+            .unwrap_or(0);
+        self.chapter_state.select(Some(chapter_idx));
+        if changed_book {
+            self.chapter_scroll = chapter_idx;
         }
-
-        // At first chapter of first book in volume - can't go further
-        false
+        true
     }
 
     /// Clear the selected range (called when leaving AI mode or jumping to different reference)

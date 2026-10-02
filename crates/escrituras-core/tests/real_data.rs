@@ -61,3 +61,36 @@ Moses 1:39 explains God's work and glory.";
         ]
     );
 }
+
+#[tokio::test]
+async fn navigates_between_chapters_within_a_volume() {
+    let db = load_db().await;
+    let at = |book: &str, chapter: i32| Some((book.to_string(), chapter));
+
+    // Within a book
+    assert_eq!(db.next_chapter("Alma", 32), at("Alma", 33));
+    assert_eq!(db.previous_chapter("Alma", 32), at("Alma", 31));
+
+    // Across books in the same volume
+    assert_eq!(db.next_chapter("1 Nephi", 22), at("2 Nephi", 1));
+    assert_eq!(db.previous_chapter("2 Nephi", 1), at("1 Nephi", 22));
+
+    // Stops at volume boundaries
+    assert_eq!(db.next_chapter("Moroni", 10), None);
+    assert_eq!(db.previous_chapter("1 Nephi", 1), None);
+    assert_eq!(db.previous_chapter("Matthew", 1), None);
+    assert_eq!(db.next_chapter("Malachi", 4), None);
+
+    // Single-book volume
+    assert_eq!(
+        db.next_chapter("Doctrine and Covenants", 76),
+        at("Doctrine and Covenants", 77)
+    );
+    assert_eq!(db.next_chapter("Doctrine and Covenants", 138), None);
+
+    // Unknown book or chapter
+    assert_eq!(db.next_chapter("Nowhere", 1), None);
+    assert_eq!(db.next_chapter("Alma", 99), None);
+
+    assert_eq!(db.get_volume_for_book("Alma"), Some("Book of Mormon"));
+}

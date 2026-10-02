@@ -51,6 +51,7 @@ pub struct ScriptureDb {
     volumes: Vec<String>,
     books_by_volume: HashMap<String, Vec<String>>,
     chapters_by_book: HashMap<String, Vec<i32>>,
+    volume_by_book: HashMap<String, String>,
 }
 
 impl Default for ScriptureDb {
@@ -66,6 +67,7 @@ impl ScriptureDb {
             volumes: Vec::new(),
             books_by_volume: HashMap::new(),
             chapters_by_book: HashMap::new(),
+            volume_by_book: HashMap::new(),
         }
     }
 
@@ -146,6 +148,14 @@ impl ScriptureDb {
             chapters.sort();
         }
         self.chapters_by_book = chapters_by_bk;
+
+        self.volume_by_book = self
+            .books_by_volume
+            .iter()
+            .flat_map(|(volume, books)| {
+                books.iter().map(move |book| (book.clone(), volume.clone()))
+            })
+            .collect();
     }
 
     pub fn get_volumes(&self) -> &[String] {
@@ -168,6 +178,43 @@ impl ScriptureDb {
             .iter()
             .filter(|s| s.book_title == book && s.chapter_number == chapter)
             .collect()
+    }
+
+    /// The volume a book belongs to, e.g. "Book of Mormon" for "Alma"
+    pub fn get_volume_for_book(&self, book: &str) -> Option<&str> {
+        self.volume_by_book.get(book).map(String::as_str)
+    }
+
+    /// The chapter after `book` `chapter` in canonical order, continuing into
+    /// the next book of the same volume. `None` at the end of the volume.
+    pub fn next_chapter(&self, book: &str, chapter: i32) -> Option<(String, i32)> {
+        let chapters = self.chapters_by_book.get(book)?;
+        let idx = chapters.iter().position(|&c| c == chapter)?;
+        if let Some(&next) = chapters.get(idx + 1) {
+            return Some((book.to_string(), next));
+        }
+
+        let books = self.books_by_volume.get(self.get_volume_for_book(book)?)?;
+        let book_idx = books.iter().position(|b| b == book)?;
+        let next_book = books.get(book_idx + 1)?;
+        let first = *self.chapters_by_book.get(next_book)?.first()?;
+        Some((next_book.clone(), first))
+    }
+
+    /// The chapter before `book` `chapter` in canonical order, continuing into
+    /// the previous book of the same volume. `None` at the start of the volume.
+    pub fn previous_chapter(&self, book: &str, chapter: i32) -> Option<(String, i32)> {
+        let chapters = self.chapters_by_book.get(book)?;
+        let idx = chapters.iter().position(|&c| c == chapter)?;
+        if idx > 0 {
+            return Some((book.to_string(), chapters[idx - 1]));
+        }
+
+        let books = self.books_by_volume.get(self.get_volume_for_book(book)?)?;
+        let book_idx = books.iter().position(|b| b == book)?;
+        let prev_book = books.get(book_idx.checked_sub(1)?)?;
+        let last = *self.chapters_by_book.get(prev_book)?.last()?;
+        Some((prev_book.clone(), last))
     }
 
     /// Get a scripture by its verse title (e.g., "John 3:16")
