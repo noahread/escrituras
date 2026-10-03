@@ -53,6 +53,12 @@ pub struct ScriptureDb {
     chapters_by_book: HashMap<String, Vec<i32>>,
 }
 
+impl Default for ScriptureDb {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScriptureDb {
     pub fn new() -> Self {
         Self {

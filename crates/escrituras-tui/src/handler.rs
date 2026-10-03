@@ -308,10 +308,11 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
 
         // Enter focus mode (when Preview focused)
         KeyCode::Char('f') => {
-            if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
-                if app.search_state.selected().is_some() {
-                    app.enter_focus_mode();
-                }
+            if app.search_focus == SearchFocus::Preview
+                && !app.show_context_panel
+                && app.search_state.selected().is_some()
+            {
+                app.enter_focus_mode();
             }
         }
 
@@ -321,14 +322,12 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
         }
 
         // View selected result (go to that chapter)
-        KeyCode::Enter => {
-            if app.search_focus == SearchFocus::Results {
-                if let Some(i) = app.search_state.selected() {
-                    if let Some(scripture) = app.search_results.get(i).cloned() {
-                        app.jump_to_scripture(&scripture);
-                        app.screen = Screen::Browse;
-                        app.focus = FocusPane::Content;
-                    }
+        KeyCode::Enter if app.search_focus == SearchFocus::Results => {
+            if let Some(i) = app.search_state.selected() {
+                if let Some(scripture) = app.search_results.get(i).cloned() {
+                    app.jump_to_scripture(&scripture);
+                    app.screen = Screen::Browse;
+                    app.focus = FocusPane::Content;
                 }
             }
         }
@@ -903,14 +902,10 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                     if let Some(range) = &app.selected_range {
                         // User is viewing a specific reference range
                         Some(range.display_title())
-                    } else if let Some(first_verse) = app.cached_verses.first() {
-                        // User is viewing a chapter
-                        Some(format!(
-                            "{} {}",
-                            first_verse.book_title, first_verse.chapter_number
-                        ))
                     } else {
-                        None
+                        app.cached_verses.first().map(|first_verse| {
+                            format!("{} {}", first_verse.book_title, first_verse.chapter_number)
+                        })
                     }
                 } else {
                     None

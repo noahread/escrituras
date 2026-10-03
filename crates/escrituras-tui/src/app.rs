@@ -250,7 +250,7 @@ impl App {
         let current_provider = config
             .provider
             .as_ref()
-            .and_then(|p| Provider::from_str(p))
+            .and_then(|p| p.parse::<Provider>().ok())
             .unwrap_or(Provider::Ollama);
 
         // Initialize API clients - check env vars first, then config
@@ -521,7 +521,7 @@ impl App {
                 // Use selected_volume() since is_single_book_volume expects a volume name
                 let is_single_book = self
                     .selected_volume()
-                    .map(|v| self.is_single_book_volume(&v))
+                    .map(|v| self.is_single_book_volume(v))
                     .unwrap_or(false);
 
                 if is_single_book {
