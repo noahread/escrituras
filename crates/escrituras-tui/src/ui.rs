@@ -1,12 +1,15 @@
+use crate::app::{
+    App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, NavLevel, Screen,
+    SearchFocus,
+};
+use escrituras_core::{Provider, Scripture};
 use ratatui::{
-    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    Frame,
 };
-use crate::app::{App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, NavLevel, Screen, SearchFocus};
-use escrituras_core::{Provider, Scripture};
 
 /// Ensure the selected item in a list is visible by adjusting the ListState offset.
 /// This clamps the offset to a valid range where the selected item is always visible.
@@ -75,16 +78,16 @@ fn wrap_text_to_width(text: &str, width: usize) -> Vec<String> {
 
 /// Pre-calculated layout information for a single verse
 struct VerseLayout {
-    verse_idx: usize,       // Index into cached_verses
-    start_line: usize,      // Global line number where this verse starts
-    line_count: usize,      // Number of lines this verse occupies (including trailing blank)
-    wrapped_lines: Vec<String>,  // Pre-wrapped text lines
+    verse_idx: usize,           // Index into cached_verses
+    start_line: usize,          // Global line number where this verse starts
+    line_count: usize,          // Number of lines this verse occupies (including trailing blank)
+    wrapped_lines: Vec<String>, // Pre-wrapped text lines
 }
 
 /// Layout information for the entire chapter
 struct ChapterLayout {
     verses: Vec<VerseLayout>,
-    total_lines: usize,     // Total lines in the chapter
+    total_lines: usize, // Total lines in the chapter
 }
 
 /// Calculate the line-based layout for all verses in a chapter
@@ -156,7 +159,7 @@ fn calculate_scroll_for_verse(
     verse_idx: usize,
     view_height: usize,
     current_scroll: usize,
-    _direction: crate::app::ScrollDirection,  // Kept for potential future use
+    _direction: crate::app::ScrollDirection, // Kept for potential future use
     verse_line_offset: usize,
 ) -> usize {
     if verse_idx >= layout.verses.len() || view_height == 0 {
@@ -293,7 +296,10 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     };
 
     let title = Line::from(vec![
-        Span::styled(" Stick of Joseph, Stick of Judah ", Style::default().fg(Color::Cyan).bold()),
+        Span::styled(
+            " Stick of Joseph, Stick of Judah ",
+            Style::default().fg(Color::Cyan).bold(),
+        ),
         Span::styled(context_indicator, Style::default().fg(Color::DarkGray)),
         Span::raw(" "),
         Span::styled(
@@ -364,7 +370,14 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                 Span::styled(" Tab ", key_style),
                 Span::styled(" focus ", label_style),
                 Span::styled(" X ", key_style),
-                Span::styled(if app.show_context_panel { " scripture " } else { " saved " }, label_style),
+                Span::styled(
+                    if app.show_context_panel {
+                        " scripture "
+                    } else {
+                        " saved "
+                    },
+                    label_style,
+                ),
                 Span::styled(" / ", key_style),
                 Span::styled(" search ", label_style),
                 Span::styled(" a ", key_style),
@@ -373,7 +386,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                 Span::styled(" quit ", label_style),
             ]);
             hints
-        },
+        }
         (Screen::Search, InputMode::Normal) => {
             let mut hints = vec![
                 Span::styled(" j/k ", key_style),
@@ -407,14 +420,21 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                 Span::styled(" Tab ", key_style),
                 Span::styled(" focus ", label_style),
                 Span::styled(" X ", key_style),
-                Span::styled(if app.show_context_panel { " scripture " } else { " saved " }, label_style),
+                Span::styled(
+                    if app.show_context_panel {
+                        " scripture "
+                    } else {
+                        " saved "
+                    },
+                    label_style,
+                ),
                 Span::styled(" i ", key_style),
                 Span::styled(" edit ", label_style),
                 Span::styled(" Esc ", key_style),
                 Span::styled(" browse ", label_style),
             ]);
             hints
-        },
+        }
         (Screen::Search, InputMode::Editing) => vec![
             Span::styled(" Enter ", key_style),
             Span::styled(" search ", label_style),
@@ -470,7 +490,14 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
             // Saved scriptures toggle hint
             hints.extend(vec![
                 Span::styled(" X ", key_style),
-                Span::styled(if app.show_context_panel { " scripture " } else { " saved " }, label_style),
+                Span::styled(
+                    if app.show_context_panel {
+                        " scripture "
+                    } else {
+                        " saved "
+                    },
+                    label_style,
+                ),
             ]);
             // Provider and model picker hints
             hints.extend(vec![
@@ -490,7 +517,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                 Span::styled(" browse ", label_style),
             ]);
             hints
-        },
+        }
         (Screen::Query, InputMode::Editing) => vec![
             Span::styled(" Enter ", key_style),
             Span::styled(" send ", label_style),
@@ -521,43 +548,42 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                                 Span::styled(" mode ", label_style),
                             ]);
                         }
-                        MemorizeMode::Flashcard => {
-                            match state.flashcard_phase {
-                                FlashcardPhase::Hidden => {
-                                    hints.extend(vec![
-                                        Span::styled(" Space ", key_style),
-                                        Span::styled(" reveal ", label_style),
-                                        Span::styled(" t ", key_style),
-                                        Span::styled(" type ", label_style),
-                                        Span::styled(" M ", key_style),
-                                        Span::styled(" mode ", label_style),
-                                    ]);
-                                }
-                                FlashcardPhase::Typing => {
-                                    hints.clear();
-                                    hints.extend(vec![
-                                        Span::styled(" Enter ", key_style),
-                                        Span::styled(" submit ", label_style),
-                                        Span::styled(" Esc ", key_style),
-                                        Span::styled(" cancel ", label_style),
-                                    ]);
-                                }
-                                FlashcardPhase::Revealed => {
-                                    hints.extend(vec![
-                                        Span::styled(" r ", key_style),
-                                        Span::styled(" reset ", label_style),
-                                        Span::styled(" M ", key_style),
-                                        Span::styled(" mode ", label_style),
-                                    ]);
-                                }
+                        MemorizeMode::Flashcard => match state.flashcard_phase {
+                            FlashcardPhase::Hidden => {
+                                hints.extend(vec![
+                                    Span::styled(" Space ", key_style),
+                                    Span::styled(" reveal ", label_style),
+                                    Span::styled(" t ", key_style),
+                                    Span::styled(" type ", label_style),
+                                    Span::styled(" M ", key_style),
+                                    Span::styled(" mode ", label_style),
+                                ]);
                             }
-                        }
+                            FlashcardPhase::Typing => {
+                                hints.clear();
+                                hints.extend(vec![
+                                    Span::styled(" Enter ", key_style),
+                                    Span::styled(" submit ", label_style),
+                                    Span::styled(" Esc ", key_style),
+                                    Span::styled(" cancel ", label_style),
+                                ]);
+                            }
+                            FlashcardPhase::Revealed => {
+                                hints.extend(vec![
+                                    Span::styled(" r ", key_style),
+                                    Span::styled(" reset ", label_style),
+                                    Span::styled(" M ", key_style),
+                                    Span::styled(" mode ", label_style),
+                                ]);
+                            }
+                        },
                     }
                 }
             }
 
             // Only show exit hint if not in typing mode
-            let in_typing = app.focus_state
+            let in_typing = app
+                .focus_state
                 .as_ref()
                 .map(|s| s.flashcard_phase == FlashcardPhase::Typing)
                 .unwrap_or(false);
@@ -568,8 +594,17 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                 ]);
             }
             hints
-        },
+        }
         _ => vec![],
+    };
+
+    // A status message (e.g. a failed copy) temporarily replaces the hints
+    let hints = match app.active_status() {
+        Some(message) => vec![Span::styled(
+            format!(" {} ", message),
+            Style::default().bg(Color::Red).fg(Color::White),
+        )],
+        None => hints,
     };
 
     let footer_content = Line::from(
@@ -588,11 +623,8 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
 
 fn render_browse_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     // Split into navigation (left) and content (right)
-    let [nav_area, content_area] = Layout::horizontal([
-        Constraint::Length(30),
-        Constraint::Min(0),
-    ])
-    .areas(area);
+    let [nav_area, content_area] =
+        Layout::horizontal([Constraint::Length(30), Constraint::Min(0)]).areas(area);
 
     // Store areas for mouse hit-testing
     app.nav_area = Some(nav_area);
@@ -611,33 +643,41 @@ fn render_browse_screen(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_navigation(app: &mut App, frame: &mut Frame, area: Rect) {
     let nav_focused = app.focus == FocusPane::Navigation;
-    let border_color = if nav_focused { Color::Cyan } else { Color::DarkGray };
+    let border_color = if nav_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     // Calculate visible height (subtract borders)
     let visible_height = area.height.saturating_sub(2) as usize;
     app.nav_visible_height = visible_height;
 
     // Get items, scroll reference, and selection for current nav level
-    let (items, total, scroll, selected): (Vec<String>, usize, &mut usize, usize) = match app.nav_level {
-        NavLevel::Volume => (
-            app.cached_volumes.clone(),
-            app.cached_volumes.len(),
-            &mut app.volume_scroll,
-            app.volume_state.selected().unwrap_or(0),
-        ),
-        NavLevel::Book => (
-            app.cached_books.clone(),
-            app.cached_books.len(),
-            &mut app.book_scroll,
-            app.book_state.selected().unwrap_or(0),
-        ),
-        NavLevel::Chapter => (
-            app.cached_chapters.iter().map(|c| app.get_chapter_label(*c)).collect(),
-            app.cached_chapters.len(),
-            &mut app.chapter_scroll,
-            app.chapter_state.selected().unwrap_or(0),
-        ),
-    };
+    let (items, total, scroll, selected): (Vec<String>, usize, &mut usize, usize) =
+        match app.nav_level {
+            NavLevel::Volume => (
+                app.cached_volumes.clone(),
+                app.cached_volumes.len(),
+                &mut app.volume_scroll,
+                app.volume_state.selected().unwrap_or(0),
+            ),
+            NavLevel::Book => (
+                app.cached_books.clone(),
+                app.cached_books.len(),
+                &mut app.book_scroll,
+                app.book_state.selected().unwrap_or(0),
+            ),
+            NavLevel::Chapter => (
+                app.cached_chapters
+                    .iter()
+                    .map(|c| app.get_chapter_label(*c))
+                    .collect(),
+                app.cached_chapters.len(),
+                &mut app.chapter_scroll,
+                app.chapter_state.selected().unwrap_or(0),
+            ),
+        };
 
     // Only adjust scroll when selected would go OUT of view
     // This is "lazy scrolling" - scroll stays put until necessary
@@ -689,7 +729,7 @@ fn render_navigation(app: &mut App, frame: &mut Frame, area: Rect) {
                         Style::default()
                             .bg(Color::Blue)
                             .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
+                            .add_modifier(Modifier::BOLD),
                     )
                 } else {
                     Line::raw(format!("  {} ", v))
@@ -706,7 +746,11 @@ fn render_navigation(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
     let content_focused = app.focus == FocusPane::Content;
-    let border_color = if content_focused { Color::Cyan } else { Color::DarkGray };
+    let border_color = if content_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let title = app.content_title();
     let block = Block::default()
@@ -741,7 +785,7 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
         &layout,
         selected_idx,
         view_height,
-        app.line_scroll,  // Pass current scroll for lazy behavior
+        app.line_scroll, // Pass current scroll for lazy behavior
         app.last_scroll_direction,
         app.verse_line_offset,
     );
@@ -839,22 +883,19 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_search_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     // Layout: search input at top, results below split into list and preview
-    let [input_area, results_area] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(0),
-    ])
-    .areas(area);
+    let [input_area, results_area] =
+        Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
 
     // Search input
     let input_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(
-            if app.input_mode == InputMode::Editing {
+        .border_style(
+            Style::default().fg(if app.input_mode == InputMode::Editing {
                 Color::Yellow
             } else {
                 Color::DarkGray
-            },
-        ))
+            }),
+        )
         .title(" Search ");
 
     let input = Paragraph::new(app.search_input.as_str())
@@ -872,15 +913,17 @@ fn render_search_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     }
 
     // Results: list on left, preview/saved on right
-    let [list_area, preview_area] = Layout::horizontal([
-        Constraint::Percentage(40),
-        Constraint::Percentage(60),
-    ])
-    .areas(results_area);
+    let [list_area, preview_area] =
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .areas(results_area);
 
     // Results list - highlight when focused
     let results_focused = app.search_focus == SearchFocus::Results;
-    let results_border_color = if results_focused { Color::Cyan } else { Color::DarkGray };
+    let results_border_color = if results_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let results_block = Block::default()
         .borders(Borders::ALL)
@@ -916,7 +959,11 @@ fn render_search_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     } else {
         // Preview panel - highlight when focused
         let preview_focused = app.search_focus == SearchFocus::Preview;
-        let preview_border_color = if preview_focused { Color::Cyan } else { Color::DarkGray };
+        let preview_border_color = if preview_focused {
+            Color::Cyan
+        } else {
+            Color::DarkGray
+        };
 
         let preview_block = Block::default()
             .borders(Borders::ALL)
@@ -952,11 +999,8 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     use escrituras_core::ChatRole;
 
     // Split layout: AI panel on left, scripture content on right (like browse)
-    let [ai_area, content_area] = Layout::horizontal([
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
-    ])
-    .areas(area);
+    let [ai_area, content_area] =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(area);
 
     // Calculate references panel height (if we have references)
     let refs_height = if app.extracted_references.is_empty() {
@@ -988,7 +1032,11 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     // Store areas for mouse hit-testing
     app.nav_area = Some(chat_area);
     app.content_area = Some(content_area);
-    app.refs_area = if refs_height > 0 { Some(refs_area) } else { None };
+    app.refs_area = if refs_height > 0 {
+        Some(refs_area)
+    } else {
+        None
+    };
 
     // Store chat area dimensions for scroll calculations (inner size minus borders)
     app.query_chat_height = chat_area.height.saturating_sub(2);
@@ -996,7 +1044,11 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
 
     // Determine focus colors
     let ai_focused = app.focus == FocusPane::Navigation;
-    let ai_border_color = if ai_focused { Color::Cyan } else { Color::DarkGray };
+    let ai_border_color = if ai_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     // Chat history area - show provider and model
     let provider_name = match app.current_provider {
@@ -1022,7 +1074,9 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                 ChatRole::User => {
                     lines.push(Line::from(Span::styled(
                         "You:",
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     )));
                     lines.push(Line::from(msg.content.as_str()));
                     lines.push(Line::default());
@@ -1030,7 +1084,9 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                 ChatRole::Assistant => {
                     lines.push(Line::from(Span::styled(
                         "AI:",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     )));
                     // Split response into lines and parse markdown
                     for line in msg.content.lines() {
@@ -1044,13 +1100,17 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
         if app.query_loading {
             lines.push(Line::from(Span::styled(
                 "AI:",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )));
             // Animated ellipsis: cycles through ".", "..", "..."
             let dots = ".".repeat((app.animation_frame as usize) + 1);
             lines.push(Line::from(Span::styled(
                 format!("Thinking{}", dots),
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
             )));
         }
 
@@ -1067,7 +1127,11 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     // Render references panel if we have any
     if !app.extracted_references.is_empty() && refs_area.height > 0 {
         let refs_focused = app.focus == FocusPane::References;
-        let refs_border_color = if refs_focused { Color::Cyan } else { Color::Magenta };
+        let refs_border_color = if refs_focused {
+            Color::Cyan
+        } else {
+            Color::Magenta
+        };
 
         let refs_block = Block::default()
             .borders(Borders::ALL)
@@ -1078,9 +1142,7 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
             .extracted_references
             .iter()
             .enumerate()
-            .map(|(i, range)| {
-                ListItem::new(format!(" {}. {} ", i + 1, range.display_title()))
-            })
+            .map(|(i, range)| ListItem::new(format!(" {}. {} ", i + 1, range.display_title())))
             .collect();
 
         let refs_list = List::new(refs_items)
@@ -1129,7 +1191,8 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     };
 
     // Get the visible slice of the input
-    let visible_text: String = app.query_input
+    let visible_text: String = app
+        .query_input
         .chars()
         .skip(scroll_offset)
         .take(inner_width)
@@ -1145,10 +1208,7 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     // Show cursor when editing
     if app.input_mode == InputMode::Editing {
         let cursor_x = (cursor_pos - scroll_offset) as u16;
-        frame.set_cursor_position((
-            input_area.x + cursor_x + 1,
-            input_area.y + 1,
-        ));
+        frame.set_cursor_position((input_area.x + cursor_x + 1, input_area.y + 1));
     }
 
     // Right side: Show scripture content or context panel
@@ -1161,12 +1221,19 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_context_panel(app: &mut App, frame: &mut Frame, area: Rect) {
     let content_focused = app.focus == FocusPane::Content;
-    let border_color = if content_focused { Color::Cyan } else { Color::DarkGray };
+    let border_color = if content_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .title(format!(" Saved Scriptures ({}) ", app.session_context.len()));
+        .title(format!(
+            " Saved Scriptures ({}) ",
+            app.session_context.len()
+        ));
 
     if app.session_context.is_empty() {
         let placeholder = Paragraph::new("No saved scriptures.\nPress 'x' on a verse to save it.")
@@ -1234,7 +1301,9 @@ fn render_model_picker(app: &mut App, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|model| {
             let style = if model == &app.selected_model {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -1292,7 +1361,9 @@ fn render_provider_picker(app: &mut App, frame: &mut Frame, area: Rect) {
             let prefix = if is_current { "* " } else { "  " };
 
             let style = if is_current {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else if key_source.is_some() {
                 Style::default()
             } else {
@@ -1319,7 +1390,8 @@ fn render_provider_picker(app: &mut App, frame: &mut Frame, area: Rect) {
 fn render_api_key_input(app: &App, frame: &mut Frame, area: Rect) {
     use ratatui::widgets::Clear;
 
-    let provider_name = app.api_key_target_provider
+    let provider_name = app
+        .api_key_target_provider
         .map(|p| p.display_name())
         .unwrap_or("Provider");
 
@@ -1344,8 +1416,9 @@ fn render_api_key_input(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(block, popup_area);
 
     // Instructions
-    let instructions = Paragraph::new("Paste your API key below. Press Enter to save, Esc to cancel.")
-        .style(Style::default().fg(Color::DarkGray));
+    let instructions =
+        Paragraph::new("Paste your API key below. Press Enter to save, Esc to cancel.")
+            .style(Style::default().fg(Color::DarkGray));
 
     let instructions_area = Rect::new(inner.x, inner.y, inner.width, 1);
     frame.render_widget(instructions, instructions_area);
@@ -1364,8 +1437,7 @@ fn render_api_key_input(app: &App, frame: &mut Frame, area: Rect) {
         format!("{}...{}", "*".repeat(masked_len.min(20)), last_four)
     };
 
-    let input = Paragraph::new(display_text)
-        .style(Style::default().fg(Color::Cyan));
+    let input = Paragraph::new(display_text).style(Style::default().fg(Color::Cyan));
 
     frame.render_widget(input, input_area);
 
@@ -1375,8 +1447,7 @@ fn render_api_key_input(app: &App, frame: &mut Frame, area: Rect) {
 
     // Status line
     let char_count = format!("{} characters", app.api_key_input.len());
-    let status = Paragraph::new(char_count)
-        .style(Style::default().fg(Color::DarkGray));
+    let status = Paragraph::new(char_count).style(Style::default().fg(Color::DarkGray));
 
     let status_area = Rect::new(inner.x, inner.y + 4, inner.width, 1);
     frame.render_widget(status, status_area);
@@ -1393,17 +1464,12 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     let content_width = area.width.min(max_width + 4); // +4 for borders
     let h_margin = (area.width.saturating_sub(content_width)) / 2;
 
-    let centered_area = Rect::new(
-        area.x + h_margin,
-        area.y,
-        content_width,
-        area.height,
-    );
+    let centered_area = Rect::new(area.x + h_margin, area.y, content_width, area.height);
 
     // Layout: Title (reference) and Content
     let [title_area, content_area] = Layout::vertical([
-        Constraint::Length(3),  // Reference title
-        Constraint::Min(5),     // Scripture content
+        Constraint::Length(3), // Reference title
+        Constraint::Min(5),    // Scripture content
     ])
     .areas(centered_area);
 
@@ -1412,12 +1478,10 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 
-    let title_text = Paragraph::new(Line::from(vec![
-        Span::styled(
-            state.current_verse.verse_title.clone(),
-            Style::default().fg(Color::Yellow).bold(),
-        ),
-    ]))
+    let title_text = Paragraph::new(Line::from(vec![Span::styled(
+        state.current_verse.verse_title.clone(),
+        Style::default().fg(Color::Yellow).bold(),
+    )]))
     .block(title_block)
     .alignment(ratatui::layout::Alignment::Center);
 
@@ -1442,9 +1506,7 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
         .title(content_title);
 
     // Handle special rendering for flashcard typing and revealed phases
-    if state.sub_mode == FocusSubMode::Memorize
-        && state.memorize_mode == MemorizeMode::Flashcard
-    {
+    if state.sub_mode == FocusSubMode::Memorize && state.memorize_mode == MemorizeMode::Flashcard {
         match state.flashcard_phase {
             FlashcardPhase::Typing => {
                 // Show typing input area
@@ -1452,11 +1514,8 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                 frame.render_widget(content_block, content_area);
 
                 // Layout for input
-                let [prompt_area, input_area] = Layout::vertical([
-                    Constraint::Length(2),
-                    Constraint::Min(3),
-                ])
-                .areas(inner);
+                let [prompt_area, input_area] =
+                    Layout::vertical([Constraint::Length(2), Constraint::Min(3)]).areas(inner);
 
                 let prompt = Paragraph::new("Type the scripture from memory:")
                     .style(Style::default().fg(Color::DarkGray));
@@ -1527,40 +1586,38 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                 frame.render_widget(content_block, content_area);
 
                 // Layout for diff display
-                let [user_label_area, user_area, _spacer, actual_label_area, actual_area] = Layout::vertical([
-                    Constraint::Length(1),
-                    Constraint::Min(2),
-                    Constraint::Length(1),
-                    Constraint::Length(1),
-                    Constraint::Min(2),
-                ])
-                .areas(inner);
+                let [user_label_area, user_area, _spacer, actual_label_area, actual_area] =
+                    Layout::vertical([
+                        Constraint::Length(1),
+                        Constraint::Min(2),
+                        Constraint::Length(1),
+                        Constraint::Length(1),
+                        Constraint::Min(2),
+                    ])
+                    .areas(inner);
 
                 // User's attempt label
-                let user_label = Paragraph::new("Your attempt:")
-                    .style(Style::default().fg(Color::DarkGray));
+                let user_label =
+                    Paragraph::new("Your attempt:").style(Style::default().fg(Color::DarkGray));
                 frame.render_widget(user_label, user_label_area);
 
                 // Compute diff and render user's attempt with highlighting
-                let diff_result = compute_word_diff(
-                    &state.current_verse.scripture_text,
-                    &state.flashcard_input,
-                );
+                let diff_result =
+                    compute_word_diff(&state.current_verse.scripture_text, &state.flashcard_input);
 
                 let user_spans = render_diff_user_attempt(&diff_result);
-                let user_text = Paragraph::new(Line::from(user_spans))
-                    .wrap(Wrap { trim: true });
+                let user_text = Paragraph::new(Line::from(user_spans)).wrap(Wrap { trim: true });
                 frame.render_widget(user_text, user_area);
 
                 // Actual text label
-                let actual_label = Paragraph::new("Actual scripture:")
-                    .style(Style::default().fg(Color::DarkGray));
+                let actual_label =
+                    Paragraph::new("Actual scripture:").style(Style::default().fg(Color::DarkGray));
                 frame.render_widget(actual_label, actual_label_area);
 
                 // Render actual text with missing words highlighted
                 let actual_spans = render_diff_actual_text(&diff_result);
-                let actual_text = Paragraph::new(Line::from(actual_spans))
-                    .wrap(Wrap { trim: true });
+                let actual_text =
+                    Paragraph::new(Line::from(actual_spans)).wrap(Wrap { trim: true });
                 frame.render_widget(actual_text, actual_area);
 
                 return;
@@ -1573,12 +1630,8 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
 
     // Default content rendering with vertical centering and horizontal padding
     let content_text = match state.sub_mode {
-        FocusSubMode::Reading => {
-            state.current_verse.scripture_text.clone()
-        }
-        FocusSubMode::Memorize => {
-            render_memorize_text(state)
-        }
+        FocusSubMode::Reading => state.current_verse.scripture_text.clone(),
+        FocusSubMode::Memorize => render_memorize_text(state),
     };
 
     // Render the block first
@@ -1588,12 +1641,7 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
     // Add horizontal padding (4 chars on each side)
     let h_padding = 4u16;
     let padded_width = inner.width.saturating_sub(h_padding * 2);
-    let padded_area = Rect::new(
-        inner.x + h_padding,
-        inner.y,
-        padded_width,
-        inner.height,
-    );
+    let padded_area = Rect::new(inner.x + h_padding, inner.y, padded_width, inner.height);
 
     // Estimate text height for vertical centering
     // Count wrapped lines based on padded width
@@ -1606,7 +1654,9 @@ fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
             } else {
                 (lines, line_len + word_len)
             }
-        }).0 + 1; // +1 for the final line
+        })
+        .0
+        + 1; // +1 for the final line
 
     let text_height = text_lines as u16;
     let available_height = padded_area.height;
@@ -1638,9 +1688,9 @@ struct DiffResult {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum WordStatus {
-    Correct,  // Word matches
-    Missing,  // Word in original but not in user
-    Wrong,    // Word in user but not matching original
+    Correct, // Word matches
+    Missing, // Word in original but not in user
+    Wrong,   // Word in user but not matching original
 }
 
 /// Normalize a word for comparison (lowercase, strip punctuation)
@@ -1700,8 +1750,10 @@ fn compute_word_diff(original: &str, user: &str) -> DiffResult {
 
     // Find LCS matches
     let matches = compute_lcs(&orig_normalized, &user_normalized);
-    let match_set_orig: std::collections::HashSet<usize> = matches.iter().map(|(o, _)| *o).collect();
-    let match_set_user: std::collections::HashSet<usize> = matches.iter().map(|(_, u)| *u).collect();
+    let match_set_orig: std::collections::HashSet<usize> =
+        matches.iter().map(|(o, _)| *o).collect();
+    let match_set_user: std::collections::HashSet<usize> =
+        matches.iter().map(|(_, u)| *u).collect();
 
     // Build result for original words
     let original_result: Vec<(String, WordStatus)> = orig_words
@@ -1819,13 +1871,17 @@ fn apply_progressive_hiding(text: &str, level: u8) -> String {
         if should_hide {
             // Always show first letter, hide rest (replace with underscores)
             // Keep punctuation visible
-            let hidden: String = word.chars().enumerate().map(|(j, c)| {
-                if j == 0 || !c.is_alphabetic() {
-                    c  // Keep first letter and punctuation
-                } else {
-                    '_'
-                }
-            }).collect();
+            let hidden: String = word
+                .chars()
+                .enumerate()
+                .map(|(j, c)| {
+                    if j == 0 || !c.is_alphabetic() {
+                        c // Keep first letter and punctuation
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
             result.push(hidden);
         } else {
             result.push(word.to_string());

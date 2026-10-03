@@ -1,6 +1,6 @@
+use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, anyhow};
 
 #[derive(Serialize)]
 struct ClaudeMessage {
@@ -49,7 +49,8 @@ impl ClaudeClient {
             }],
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -65,7 +66,9 @@ impl ClaudeClient {
         }
 
         let claude_response: ClaudeResponse = response.json().await?;
-        Ok(claude_response.content.first()
+        Ok(claude_response
+            .content
+            .first()
             .map(|c| c.text.clone())
             .unwrap_or_default())
     }

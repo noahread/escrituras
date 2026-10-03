@@ -12,11 +12,9 @@ pub fn download_embedding_model() -> Result<()> {
     println!("Downloading embedding model for semantic search...");
 
     // Show progress since we're not in TUI mode
-    let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
-        .with_show_download_progress(true);
+    let options = InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(true);
 
-    TextEmbedding::try_new(options)
-        .map_err(|e| anyhow!("Failed to download model: {}", e))?;
+    TextEmbedding::try_new(options).map_err(|e| anyhow!("Failed to download model: {}", e))?;
 
     println!("✓ Embedding model cached successfully");
     Ok(())
@@ -41,8 +39,13 @@ impl EmbeddingsDb {
         let metadata_path = data_dir.join("scripture_metadata.json");
 
         // Load embeddings from .npy file
-        let embeddings_file = File::open(&embeddings_path)
-            .map_err(|e| anyhow!("Failed to open embeddings file {:?}: {}", embeddings_path, e))?;
+        let embeddings_file = File::open(&embeddings_path).map_err(|e| {
+            anyhow!(
+                "Failed to open embeddings file {:?}: {}",
+                embeddings_path,
+                e
+            )
+        })?;
         let embeddings: Array2<f32> = Array2::read_npy(embeddings_file)
             .map_err(|e| anyhow!("Failed to read .npy file: {}", e))?;
 
@@ -73,8 +76,8 @@ impl EmbeddingsDb {
         if self.model.is_none() {
             // Model will be downloaded to ~/.cache/fastembed/ on first use (~33MB)
             // Disable download progress to avoid corrupting TUI display
-            let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
-                .with_show_download_progress(false);
+            let options =
+                InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(false);
             self.model = Some(
                 TextEmbedding::try_new(options)
                     .map_err(|e| anyhow!("Failed to load embedding model: {}", e))?,
