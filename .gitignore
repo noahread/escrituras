@@ -27,3 +27,8 @@ yarn-error.log*
 
 # Model cache
 .fastembed_cache/
+# Built by scripts/build-xcframework.sh
+apple/EscriturasKit/EscriturasFFI.xcframework/
+apple/EscriturasKit/Sources/EscriturasKit/Generated/
+apple/EscriturasKit/.build/
+apple/EscriturasKit/.swiftpm/

@@ -60,3 +60,22 @@ jobs:
         run: |
           cargo clippy -p escrituras-ffi --all-targets -- -D warnings
           cargo test -p escrituras-ffi
+
+  swift:
+    name: Swift package (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Debug build for this Mac's architecture keeps CI fast; release builds
+      # are universal (arm64 + x86_64)
+      - name: Build XCFramework and Swift bindings
+        run: scripts/build-xcframework.sh --host --debug
+
+      - name: Swift tests
+        working-directory: apple/EscriturasKit
+        run: swift test
