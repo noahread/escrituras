@@ -1,7 +1,7 @@
 use crate::embeddings::EmbeddingsDb;
 use crate::scripture::ScriptureDb;
+use crate::search::combined_search;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::io::{BufRead, Write};
 
 #[derive(Debug, Deserialize)]
@@ -184,7 +184,7 @@ fn handle_tool_call(
     id: Option<serde_json::Value>,
     params: &serde_json::Value,
     db: &ScriptureDb,
-    embeddings: &mut Option<EmbeddingsDb>,
+    embeddings: Option<&EmbeddingsDb>,
 ) -> McpResponse {
     let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     let arguments = params
@@ -298,7 +298,7 @@ fn handle_search_scriptures(
     id: Option<serde_json::Value>,
     args: &serde_json::Value,
     db: &ScriptureDb,
-    embeddings: &mut Option<EmbeddingsDb>,
+    embeddings: Option<&EmbeddingsDb>,
 ) -> McpResponse {
     let query = match args.get("query").and_then(|v| v.as_str()) {
         Some(q) => q,
@@ -308,38 +308,16 @@ fn handle_search_scriptures(
     let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10) as usize;
 
     let semantic_limit = (limit / 2).max(5); // Use half for semantic, at least 5
-    let mut combined_results: Vec<String> = Vec::new();
-    let mut seen_titles: HashSet<String> = HashSet::new();
-
-    // Try semantic search if embeddings are available (uses local ONNX model)
-    if let Some(emb) = embeddings {
-        if let Ok(semantic_matches) = emb.search(query, semantic_limit) {
-            for (verse_title, _score) in semantic_matches {
-                if let Some(scripture) = db.get_by_title(&verse_title) {
-                    seen_titles.insert(verse_title);
-                    combined_results.push(format!(
-                        "{} - {}",
-                        scripture.verse_title, scripture.scripture_text
-                    ));
-                }
-            }
-        }
-    }
-
-    // Add keyword search results (deduped)
-    let keyword_results = db.search(query, limit);
-    for scripture in keyword_results {
-        if !seen_titles.contains(&scripture.verse_title) {
-            seen_titles.insert(scripture.verse_title.clone());
-            combined_results.push(format!(
-                "{} - {}",
-                scripture.verse_title, scripture.scripture_text
-            ));
-            if combined_results.len() >= limit {
-                break;
-            }
-        }
-    }
+    let combined_results: Vec<String> =
+        combined_search(db, embeddings, query, semantic_limit, limit)
+            .into_iter()
+            .map(|hit| {
+                format!(
+                    "{} - {}",
+                    hit.scripture.verse_title, hit.scripture.scripture_text
+                )
+            })
+            .collect();
 
     if combined_results.is_empty() {
         return McpResponse::success(
@@ -478,7 +456,7 @@ fn handle_list_books(
     )
 }
 
-pub fn run_mcp_server(db: ScriptureDb, mut embeddings: Option<EmbeddingsDb>) {
+pub fn run_mcp_server(db: ScriptureDb, embeddings: Option<EmbeddingsDb>) {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
@@ -508,7 +486,7 @@ pub fn run_mcp_server(db: ScriptureDb, mut embeddings: Option<EmbeddingsDb>) {
             "initialize" => handle_initialize(request.id),
             "notifications/initialized" => continue, // Notification, no response
             "tools/list" => handle_tools_list(request.id),
-            "tools/call" => handle_tool_call(request.id, &request.params, &db, &mut embeddings),
+            "tools/call" => handle_tool_call(request.id, &request.params, &db, embeddings.as_ref()),
             _ => McpResponse::error(
                 request.id,
                 -32601,

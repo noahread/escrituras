@@ -1,0 +1,81 @@
+name: CI
+
+# Runs on every push to every branch (so a branch is tested before it is
+# merged) and on pull requests (which also tests the merge result).
+# Tag pushes are handled by release.yml.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - run: cargo fmt --all --check
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Core and TUI only: these must build everywhere. The Tauri crate needs
+      # platform webview libraries and is not part of the default build.
+      - name: Clippy
+        run: cargo clippy -p escrituras-core -p escrituras-tui --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test -p escrituras-core -p escrituras-tui
+
+      # Bindings for the native Apple app; built on Linux too so bindings can
+      # be generated and tested without a Mac
+      - name: Clippy and test FFI bindings
+        if: runner.os != 'Windows'
+        run: |
+          cargo clippy -p escrituras-ffi --all-targets -- -D warnings
+          cargo test -p escrituras-ffi
+
+  swift:
+    name: Swift package (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Debug build for this Mac's architecture keeps CI fast; release builds
+      # are universal (arm64 + x86_64)
+      - name: Build XCFramework and Swift bindings
+        run: scripts/build-xcframework.sh --host --debug
+
+      - name: Swift tests
+        working-directory: apple/EscriturasKit
+        run: swift test

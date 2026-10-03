@@ -2,7 +2,7 @@ use crate::app::{
     App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, NavLevel, Screen,
     SearchFocus,
 };
-use escrituras_core::{Provider, Scripture};
+use escrituras_core::{KeySource, Provider, Scripture};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
@@ -10,6 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
+use std::collections::HashMap;
 
 /// Ensure the selected item in a list is visible by adjusting the ListState offset.
 /// This clamps the offset to a valid range where the selected item is always visible.
@@ -82,7 +83,18 @@ struct VerseLayout {
     start_line: usize,          // Global line number where this verse starts
     line_count: usize,          // Number of lines this verse occupies (including trailing blank)
     wrapped_lines: Vec<String>, // Pre-wrapped text lines
+    note_lines: Vec<String>,    // Pre-wrapped note lines shown under the verse (may be empty)
 }
+
+impl VerseLayout {
+    /// Lines of verse text plus note, excluding the trailing blank line
+    fn content_height(&self) -> usize {
+        self.wrapped_lines.len() + self.note_lines.len()
+    }
+}
+
+/// Prefix for each line of a note shown under its verse
+const NOTE_PREFIX: &str = "  ✎ ";
 
 /// Layout information for the entire chapter
 struct ChapterLayout {
@@ -91,7 +103,11 @@ struct ChapterLayout {
 }
 
 /// Calculate the line-based layout for all verses in a chapter
-fn calculate_chapter_layout(verses: &[Scripture], width: usize) -> ChapterLayout {
+fn calculate_chapter_layout(
+    verses: &[Scripture],
+    notes: &HashMap<String, String>,
+    width: usize,
+) -> ChapterLayout {
     let mut layouts = Vec::with_capacity(verses.len());
     let mut current_line = 0;
 
@@ -134,13 +150,20 @@ fn calculate_chapter_layout(verses: &[Scripture], width: usize) -> ChapterLayout
             wrapped.push(String::new());
         }
 
-        let line_count = wrapped.len() + 1; // +1 for blank line after verse
+        let note_width = width.saturating_sub(NOTE_PREFIX.chars().count()).max(1);
+        let note_lines = notes
+            .get(&verse.verse_title)
+            .map(|note| wrap_text_to_width(note, note_width))
+            .unwrap_or_default();
+
+        let line_count = wrapped.len() + note_lines.len() + 1; // +1 for blank line after verse
 
         layouts.push(VerseLayout {
             verse_idx: idx,
             start_line: current_line,
             line_count,
             wrapped_lines: wrapped,
+            note_lines,
         });
 
         current_line += line_count;
@@ -168,7 +191,7 @@ fn calculate_scroll_for_verse(
 
     let verse = &layout.verses[verse_idx];
     let verse_start = verse.start_line + verse_line_offset;
-    let verse_content_height = verse.wrapped_lines.len(); // Exclude trailing blank for visibility check
+    let verse_content_height = verse.content_height(); // Exclude trailing blank for visibility check
     let verse_end = verse.start_line + verse_content_height;
 
     // For verses taller than view, just show from the offset position
@@ -278,7 +301,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     render_footer(app, frame, footer_area);
 
     // Render popups (in order of priority)
-    if app.show_api_key_input {
+    if app.show_note_input {
+        render_note_input(app, frame, area);
+    } else if app.show_api_key_input {
         render_api_key_input(app, frame, area);
     } else if app.show_provider_picker {
         render_provider_picker(app, frame, area);
@@ -349,6 +374,8 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                         Span::styled(" copy ", label_style),
                         Span::styled(" x ", key_style),
                         Span::styled(" save ", label_style),
+                        Span::styled(" n ", key_style),
+                        Span::styled(" note ", label_style),
                         Span::styled(" f ", key_style),
                         Span::styled(" focus ", label_style),
                         Span::styled(" s ", key_style),
@@ -773,7 +800,7 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
     }
 
     // Calculate layout for all verses (pre-wrap all text)
-    let layout = calculate_chapter_layout(&app.cached_verses, inner_width);
+    let layout = calculate_chapter_layout(&app.cached_verses, &app.notes, inner_width);
     app.total_content_lines = layout.total_lines as u16;
 
     // Determine selected verse
@@ -869,8 +896,22 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
             }
         }
 
+        // Note lines under the verse
+        let note_style = Style::default().fg(Color::Green).italic();
+        for (note_idx, note_line) in verse_layout.note_lines.iter().enumerate() {
+            let global_line = verse_layout.start_line + verse_layout.wrapped_lines.len() + note_idx;
+            if global_line >= scroll_start && global_line < scroll_end {
+                let prefix = if note_idx == 0 {
+                    NOTE_PREFIX.to_string()
+                } else {
+                    " ".repeat(NOTE_PREFIX.chars().count())
+                };
+                lines.push(Line::styled(format!("{}{}", prefix, note_line), note_style));
+            }
+        }
+
         // Add blank line after verse (if visible)
-        let blank_line_pos = verse_layout.start_line + verse_layout.wrapped_lines.len();
+        let blank_line_pos = verse_layout.start_line + verse_layout.content_height();
         if blank_line_pos >= scroll_start && blank_line_pos < scroll_end {
             lines.push(Line::default());
         }
@@ -1104,14 +1145,21 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )));
-            // Animated ellipsis: cycles through ".", "..", "..."
-            let dots = ".".repeat((app.animation_frame as usize) + 1);
-            lines.push(Line::from(Span::styled(
-                format!("Thinking{}", dots),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC),
-            )));
+            if app.streaming_reply.is_empty() {
+                // Animated ellipsis: cycles through ".", "..", "..."
+                let dots = ".".repeat((app.animation_frame as usize) + 1);
+                lines.push(Line::from(Span::styled(
+                    format!("Thinking{}", dots),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                )));
+            } else {
+                // The reply so far, as it streams in
+                for line in app.streaming_reply.lines() {
+                    lines.push(parse_markdown_line(line));
+                }
+            }
         }
 
         Text::from(lines)
@@ -1353,10 +1401,10 @@ fn render_provider_picker(app: &mut App, frame: &mut Frame, area: Rect) {
             let is_current = *provider == app.current_provider;
 
             let status = match key_source {
-                Some("env") => "(env var)",
-                Some("config") => "(configured)",
-                Some("local") => "(local)",
-                _ => "(needs key)",
+                Some(KeySource::Env) => "(env var)",
+                Some(KeySource::Config) => "(configured)",
+                Some(KeySource::Local) => "(local)",
+                None => "(needs key)",
             };
             let prefix = if is_current { "* " } else { "  " };
 
@@ -1451,6 +1499,99 @@ fn render_api_key_input(app: &App, frame: &mut Frame, area: Rect) {
 
     let status_area = Rect::new(inner.x, inner.y + 4, inner.width, 1);
     frame.render_widget(status, status_area);
+}
+
+fn render_note_input(app: &App, frame: &mut Frame, area: Rect) {
+    use ratatui::widgets::Clear;
+
+    let verse_title = app.note_target.as_deref().unwrap_or("verse");
+
+    let popup_width = 70.min(area.width.saturating_sub(4));
+    let popup_height = 9.min(area.height.saturating_sub(2));
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Green))
+        .title(format!(" Note on {} ", verse_title));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let instructions = Paragraph::new("Enter to save, Esc to cancel. Clear the text to delete.")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(instructions, Rect::new(inner.x, inner.y, inner.width, 1));
+
+    // Input wraps across the remaining lines
+    let input_area = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
+    // Wrap once and use the same rows to draw the text and place the cursor
+    let width = input_area.width.max(1) as usize;
+    let height = input_area.height as usize;
+    let chars: Vec<char> = app.note_input.chars().collect();
+    let rows = wrap_ranges(&chars, width);
+    let (cursor_row, cursor_col) = cursor_row_col(&rows, app.note_cursor, width);
+
+    // Scroll so the cursor's row is visible
+    let first_row = (cursor_row + 1).saturating_sub(height);
+    let lines: Vec<Line> = rows
+        .iter()
+        .skip(first_row)
+        .take(height)
+        .map(|&(start, end)| Line::raw(chars[start..end].iter().collect::<String>()))
+        .collect();
+    let input = Paragraph::new(lines).style(Style::default().fg(Color::White));
+    frame.render_widget(input, input_area);
+
+    if height > 0 {
+        frame.set_cursor_position((
+            input_area.x + cursor_col as u16,
+            input_area.y + (cursor_row - first_row) as u16,
+        ));
+    }
+}
+
+/// Split text into rows of at most `width` characters, breaking after the
+/// last space that fits (or mid-word when a word is longer than a row).
+/// Returns each row's character range; every character is in exactly one row.
+fn wrap_ranges(chars: &[char], width: usize) -> Vec<(usize, usize)> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    let mut start = 0;
+    while chars.len() - start > width {
+        let window = &chars[start..start + width];
+        let end = match window.iter().rposition(|&c| c == ' ') {
+            Some(space) if space > 0 => start + space + 1,
+            _ => start + width,
+        };
+        rows.push((start, end));
+        start = end;
+    }
+    rows.push((start, chars.len()));
+    rows
+}
+
+/// Row and column of the cursor (a character index) within `rows`
+fn cursor_row_col(rows: &[(usize, usize)], cursor: usize, width: usize) -> (usize, usize) {
+    let last = rows.len() - 1;
+    for (i, &(start, end)) in rows.iter().enumerate() {
+        if cursor < end || i == last {
+            let col = cursor.saturating_sub(start);
+            // A cursor after a full last row goes to the start of the next line
+            if col >= width {
+                return (i + 1, 0);
+            }
+            return (i, col);
+        }
+    }
+    (last, 0)
 }
 
 fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -1889,4 +2030,52 @@ fn apply_progressive_hiding(text: &str, level: u8) -> String {
     }
 
     result.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cursor_row_col, wrap_ranges};
+
+    fn rows(text: &str, width: usize) -> Vec<String> {
+        let chars: Vec<char> = text.chars().collect();
+        wrap_ranges(&chars, width)
+            .into_iter()
+            .map(|(start, end)| chars[start..end].iter().collect())
+            .collect()
+    }
+
+    #[test]
+    fn test_wrap_breaks_after_spaces_and_keeps_every_character() {
+        assert_eq!(
+            rows("faith hope charity", 10),
+            ["faith ", "hope ", "charity"]
+        );
+        // Repeated and trailing spaces are kept, not collapsed
+        assert_eq!(rows("a  b ", 10), ["a  b "]);
+        assert_eq!(rows("", 10), [""]);
+    }
+
+    #[test]
+    fn test_wrap_breaks_long_words() {
+        assert_eq!(rows("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+        assert_eq!(rows("✎✎✎✎✎", 2), ["✎✎", "✎✎", "✎"]);
+    }
+
+    #[test]
+    fn test_cursor_follows_the_wrapped_rows() {
+        let chars: Vec<char> = "faith hope charity".chars().collect();
+        let wrapped = wrap_ranges(&chars, 10);
+        assert_eq!(cursor_row_col(&wrapped, 0, 10), (0, 0));
+        assert_eq!(cursor_row_col(&wrapped, 5, 10), (0, 5)); // on the space
+        assert_eq!(cursor_row_col(&wrapped, 6, 10), (1, 0)); // start of "hope"
+        assert_eq!(cursor_row_col(&wrapped, 18, 10), (2, 7)); // end of text
+    }
+
+    #[test]
+    fn test_cursor_after_a_full_last_row_moves_to_next_line() {
+        let chars: Vec<char> = "abcd".chars().collect();
+        let wrapped = wrap_ranges(&chars, 4);
+        assert_eq!(cursor_row_col(&wrapped, 4, 4), (1, 0));
+        assert_eq!(cursor_row_col(&wrapped, 3, 4), (0, 3));
+    }
 }

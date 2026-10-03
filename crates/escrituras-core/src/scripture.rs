@@ -2,6 +2,7 @@ use anyhow::Result;
 use rust_stemmers::{Algorithm, Stemmer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Scripture {
@@ -51,6 +52,85 @@ pub struct ScriptureDb {
     volumes: Vec<String>,
     books_by_volume: HashMap<String, Vec<String>>,
     chapters_by_book: HashMap<String, Vec<i32>>,
+    volume_by_book: HashMap<String, String>,
+    /// verse_title -> index into `scriptures`
+    by_title: HashMap<String, usize>,
+    /// (book_title, chapter) -> indices into `scriptures`, in verse order
+    by_chapter: HashMap<(String, i32), Vec<usize>>,
+    /// Built on the first keyword search so loading stays fast
+    search_index: OnceLock<SearchIndex>,
+}
+
+/// Precomputed data for keyword search, so a query doesn't re-stem every verse
+struct SearchIndex {
+    /// Stemmed word -> id
+    vocab: HashMap<String, u32>,
+    /// Sorted, deduplicated stem ids for each verse's text
+    verse_stems: Vec<Vec<u32>>,
+    verse_titles_lower: Vec<String>,
+    book_titles_lower: Vec<String>,
+}
+
+/// Lowercase, strip non-alphanumeric characters from each whitespace-separated
+/// word, and stem it. Words that are only punctuation are dropped.
+fn stem_words(stemmer: &Stemmer, text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split_whitespace()
+        .map(|word| {
+            let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
+            stemmer.stem(&clean).to_string()
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+impl SearchIndex {
+    fn build(scriptures: &[Scripture]) -> Self {
+        let stemmer = Stemmer::create(Algorithm::English);
+        let mut vocab: HashMap<String, u32> = HashMap::new();
+        // Stemming is the slow part, so each distinct word is stemmed once.
+        // Must match stem_words(): words that clean to nothing get no id.
+        let mut word_ids: HashMap<String, Option<u32>> = HashMap::new();
+
+        let verse_stems = scriptures
+            .iter()
+            .map(|scripture| {
+                let text_lower = scripture.scripture_text.to_lowercase();
+                let mut ids: Vec<u32> = text_lower
+                    .split_whitespace()
+                    .filter_map(|word| {
+                        if let Some(&id) = word_ids.get(word) {
+                            return id;
+                        }
+                        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
+                        let stem = stemmer.stem(&clean);
+                        let id = (!stem.is_empty()).then(|| {
+                            let next_id = vocab.len() as u32;
+                            *vocab.entry(stem.into_owned()).or_insert(next_id)
+                        });
+                        word_ids.insert(word.to_string(), id);
+                        id
+                    })
+                    .collect();
+                ids.sort_unstable();
+                ids.dedup();
+                ids
+            })
+            .collect();
+
+        Self {
+            vocab,
+            verse_stems,
+            verse_titles_lower: scriptures
+                .iter()
+                .map(|s| s.verse_title.to_lowercase())
+                .collect(),
+            book_titles_lower: scriptures
+                .iter()
+                .map(|s| s.book_title.to_lowercase())
+                .collect(),
+        }
+    }
 }
 
 impl Default for ScriptureDb {
@@ -66,10 +146,22 @@ impl ScriptureDb {
             volumes: Vec::new(),
             books_by_volume: HashMap::new(),
             chapters_by_book: HashMap::new(),
+            volume_by_book: HashMap::new(),
+            by_title: HashMap::new(),
+            by_chapter: HashMap::new(),
+            search_index: OnceLock::new(),
         }
     }
 
-    pub async fn load_from_json(&mut self, path: &str) -> Result<()> {
+    /// Build a database from verses already in canonical order
+    pub fn from_scriptures(scriptures: Vec<Scripture>) -> Self {
+        let mut db = Self::new();
+        db.scriptures = scriptures;
+        db.build_indexes();
+        db
+    }
+
+    pub async fn load_from_json(&mut self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let content = tokio::fs::read_to_string(path).await?;
         self.scriptures = serde_json::from_str(&content)?;
         self.build_indexes();
@@ -138,6 +230,29 @@ impl ScriptureDb {
             chapters.sort();
         }
         self.chapters_by_book = chapters_by_bk;
+
+        self.volume_by_book = self
+            .books_by_volume
+            .iter()
+            .flat_map(|(volume, books)| {
+                books.iter().map(move |book| (book.clone(), volume.clone()))
+            })
+            .collect();
+
+        self.by_title = HashMap::new();
+        self.by_chapter = HashMap::new();
+        for (i, scripture) in self.scriptures.iter().enumerate() {
+            // Keep the first verse if a title were ever duplicated
+            self.by_title
+                .entry(scripture.verse_title.clone())
+                .or_insert(i);
+            self.by_chapter
+                .entry((scripture.book_title.clone(), scripture.chapter_number))
+                .or_default()
+                .push(i);
+        }
+
+        self.search_index = OnceLock::new();
     }
 
     pub fn get_volumes(&self) -> &[String] {
@@ -156,17 +271,52 @@ impl ScriptureDb {
     }
 
     pub fn get_verses_for_chapter(&self, book: &str, chapter: i32) -> Vec<&Scripture> {
-        self.scriptures
-            .iter()
-            .filter(|s| s.book_title == book && s.chapter_number == chapter)
-            .collect()
+        self.by_chapter
+            .get(&(book.to_string(), chapter))
+            .map(|indices| indices.iter().map(|&i| &self.scriptures[i]).collect())
+            .unwrap_or_default()
+    }
+
+    /// The volume a book belongs to, e.g. "Book of Mormon" for "Alma"
+    pub fn get_volume_for_book(&self, book: &str) -> Option<&str> {
+        self.volume_by_book.get(book).map(String::as_str)
+    }
+
+    /// The chapter after `book` `chapter` in canonical order, continuing into
+    /// the next book of the same volume. `None` at the end of the volume.
+    pub fn next_chapter(&self, book: &str, chapter: i32) -> Option<(String, i32)> {
+        let chapters = self.chapters_by_book.get(book)?;
+        let idx = chapters.iter().position(|&c| c == chapter)?;
+        if let Some(&next) = chapters.get(idx + 1) {
+            return Some((book.to_string(), next));
+        }
+
+        let books = self.books_by_volume.get(self.get_volume_for_book(book)?)?;
+        let book_idx = books.iter().position(|b| b == book)?;
+        let next_book = books.get(book_idx + 1)?;
+        let first = *self.chapters_by_book.get(next_book)?.first()?;
+        Some((next_book.clone(), first))
+    }
+
+    /// The chapter before `book` `chapter` in canonical order, continuing into
+    /// the previous book of the same volume. `None` at the start of the volume.
+    pub fn previous_chapter(&self, book: &str, chapter: i32) -> Option<(String, i32)> {
+        let chapters = self.chapters_by_book.get(book)?;
+        let idx = chapters.iter().position(|&c| c == chapter)?;
+        if idx > 0 {
+            return Some((book.to_string(), chapters[idx - 1]));
+        }
+
+        let books = self.books_by_volume.get(self.get_volume_for_book(book)?)?;
+        let book_idx = books.iter().position(|b| b == book)?;
+        let prev_book = books.get(book_idx.checked_sub(1)?)?;
+        let last = *self.chapters_by_book.get(prev_book)?.last()?;
+        Some((prev_book.clone(), last))
     }
 
     /// Get a scripture by its verse title (e.g., "John 3:16")
     pub fn get_by_title(&self, verse_title: &str) -> Option<&Scripture> {
-        self.scriptures
-            .iter()
-            .find(|s| s.verse_title == verse_title)
+        self.by_title.get(verse_title).map(|&i| &self.scriptures[i])
     }
 
     /// Get all verses for a volume in canonical order (for Focus Mode navigation)
@@ -178,50 +328,46 @@ impl ScriptureDb {
             .collect()
     }
 
+    /// Keyword search. A verse matches when its reference or book title
+    /// contains the query, or when its text contains every query word after
+    /// stemming (so "love" finds "loved"). Results are in canonical order.
     pub fn search(&self, query: &str, limit: usize) -> Vec<&Scripture> {
         let query_lower = query.to_lowercase();
         let stemmer = Stemmer::create(Algorithm::English);
-
-        // Stem each word in the query (strip punctuation first)
-        let stemmed_terms: Vec<String> = query_lower
-            .split_whitespace()
-            .map(|word| {
-                let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
-                stemmer.stem(&clean).to_string()
-            })
-            .filter(|s| !s.is_empty())
-            .collect();
+        let stemmed_terms = stem_words(&stemmer, &query_lower);
 
         // If query is empty after stemming, return empty results
         if stemmed_terms.is_empty() {
             return Vec::new();
         }
 
+        // A term that appears in no verse means only title matches are possible
+        let index = self
+            .search_index
+            .get_or_init(|| SearchIndex::build(&self.scriptures));
+        let term_ids: Option<Vec<u32>> = stemmed_terms
+            .iter()
+            .map(|term| index.vocab.get(term).copied())
+            .collect();
+
         self.scriptures
             .iter()
-            .filter(|scripture| {
+            .enumerate()
+            .filter(|&(i, _)| {
                 // Check exact match for verse/book titles (for reference searches)
-                if scripture.verse_title.to_lowercase().contains(&query_lower)
-                    || scripture.book_title.to_lowercase().contains(&query_lower)
+                if index.verse_titles_lower[i].contains(&query_lower)
+                    || index.book_titles_lower[i].contains(&query_lower)
                 {
                     return true;
                 }
 
-                // Stem words in scripture text and check if all query terms match
-                let text_lower = scripture.scripture_text.to_lowercase();
-                let text_stems: Vec<String> = text_lower
-                    .split_whitespace()
-                    .map(|word| {
-                        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
-                        stemmer.stem(&clean).to_string()
-                    })
-                    .collect();
-
                 // All stemmed query terms must appear in stemmed text
-                stemmed_terms
-                    .iter()
-                    .all(|term| text_stems.iter().any(|text_stem| text_stem == term))
+                term_ids.as_ref().is_some_and(|ids| {
+                    ids.iter()
+                        .all(|id| index.verse_stems[i].binary_search(id).is_ok())
+                })
             })
+            .map(|(_, scripture)| scripture)
             .take(limit)
             .collect()
     }
@@ -508,10 +654,7 @@ mod tests {
             },
         ];
 
-        let mut db = ScriptureDb::new();
-        db.scriptures = scriptures;
-        db.build_indexes();
-        db
+        ScriptureDb::from_scriptures(scriptures)
     }
 
     // Basic reference extraction tests

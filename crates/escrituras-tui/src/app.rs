@@ -1,10 +1,10 @@
 use escrituras_core::{
-    ChatMessage, ClaudeClient, Config, EmbeddingsDb, OllamaClient, OpenAIClient, Provider,
-    Scripture, ScriptureDb, ScriptureRange,
+    combined_search, Assistant, ChatMessage, Config, DataPaths, EmbeddingsDb, KeySource, Provider,
+    Scripture, ScriptureDb, ScriptureRange, StudyStore,
 };
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +163,8 @@ pub struct App {
     pub query_chat_height: u16, // Height of chat area for scroll calculations
     pub query_chat_width: u16,  // Width of chat area for wrap calculations
     pub query_task: Option<tokio::task::JoinHandle<anyhow::Result<String>>>,
+    pub query_deltas: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
+    pub streaming_reply: String, // Reply received so far while query_loading
     pub extracted_references: Vec<ScriptureRange>,
     pub references_state: ListState,
 
@@ -179,6 +181,17 @@ pub struct App {
     pub context_state: ListState, // For navigating context list
     pub show_context_panel: bool, // Toggle between scripture and context view
 
+    // Persistent study data (None if the database couldn't be opened, in
+    // which case saved verses and notes only last for this session)
+    pub study: Option<StudyStore>,
+    pub notes: HashMap<String, String>, // verse_title -> note text
+
+    // Note editor state
+    pub show_note_input: bool,
+    pub note_input: String,
+    pub note_cursor: usize,
+    pub note_target: Option<String>, // verse_title being edited
+
     // Browsed chapters (for AI context, lightweight tracking)
     pub browsed_chapters: Vec<(String, i32)>, // (book_title, chapter_number)
 
@@ -192,8 +205,7 @@ pub struct App {
 
     // Provider state
     pub current_provider: Provider,
-    pub claude_client: Option<ClaudeClient>,
-    pub openai_client: Option<OpenAIClient>,
+    pub assistant: Assistant,
     pub show_provider_picker: bool,
     pub provider_picker_state: ListState,
 
@@ -214,7 +226,6 @@ pub struct App {
     // Data
     pub scripture_db: ScriptureDb,
     pub embeddings_db: Option<EmbeddingsDb>,
-    pub ollama: OllamaClient,
     pub selected_model: String,
 
     // Cached navigation data
@@ -226,28 +237,8 @@ pub struct App {
 
 impl App {
     pub async fn new() -> anyhow::Result<Self> {
-        let mut scripture_db = ScriptureDb::new();
-
-        // Try local path first, then config directory
-        let local_path = "lds-scriptures-2020.12.08/json/lds-scriptures-json.txt";
-        let config_path = dirs::config_dir()
-            .map(|p| p.join("escrituras/lds-scriptures-2020.12.08/json/lds-scriptures-json.txt"));
-
-        if std::path::Path::new(local_path).exists() {
-            scripture_db.load_from_json(local_path).await?;
-        } else if let Some(ref cfg_path) = config_path {
-            if cfg_path.exists() {
-                scripture_db
-                    .load_from_json(cfg_path.to_str().unwrap())
-                    .await?;
-            } else {
-                anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
-            }
-        } else {
-            anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
-        }
-
-        let ollama = OllamaClient::new("http://localhost:11434");
+        let paths = DataPaths::discover()?;
+        let scripture_db = paths.load_scriptures().await?;
 
         // Load config
         let config = Config::load().unwrap_or_else(|_| Config::new());
@@ -259,16 +250,8 @@ impl App {
             .and_then(|p| p.parse::<Provider>().ok())
             .unwrap_or(Provider::Ollama);
 
-        // Initialize API clients - check env vars first, then config
-        let claude_key = std::env::var("ANTHROPIC_API_KEY")
-            .ok()
-            .or_else(|| config.claude_api_key.clone());
-        let claude_client = claude_key.as_ref().map(|k| ClaudeClient::new(k));
-
-        let openai_key = std::env::var("OPENAI_API_KEY")
-            .ok()
-            .or_else(|| config.openai_api_key.clone());
-        let openai_client = openai_key.as_ref().map(|k| OpenAIClient::new(k));
+        // Initialize API clients - env vars first, then config
+        let assistant = Assistant::from_config(&config);
 
         // Load default model from config
         let selected_model = config
@@ -276,30 +259,34 @@ impl App {
             .unwrap_or_else(|| "gemma3:latest".to_string());
 
         // Load embeddings if available (for semantic search)
-        // Try local data/ directory first, then ~/.config/escrituras/data/
-        let embeddings_db = {
-            let local_path = std::path::Path::new("data");
-            let config_path = dirs::config_dir().map(|p| p.join("escrituras/data"));
+        let embeddings_db = paths.load_embeddings();
 
-            if local_path.join("scripture_embeddings.npy").exists() {
-                EmbeddingsDb::load(local_path).ok()
-            } else if let Some(ref cfg_path) = config_path {
-                if cfg_path.join("scripture_embeddings.npy").exists() {
-                    EmbeddingsDb::load(cfg_path).ok()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
+        // Saved verses, notes and the last chapter read come from the study database
+        let study = StudyStore::open_default().ok();
+        let session_context: Vec<Scripture> = study
+            .as_ref()
+            .and_then(|s| s.saved_verses().ok())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|title| scripture_db.get_by_title(title).cloned())
+            .collect();
+        let notes: HashMap<String, String> = study
+            .as_ref()
+            .and_then(|s| s.notes().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|note| (note.verse_title, note.body))
+            .collect();
+        let last_position = study
+            .as_ref()
+            .and_then(|s| s.last_position().ok().flatten());
 
         let cached_volumes: Vec<String> = scripture_db.get_volumes().to_vec();
 
         let mut volume_state = ListState::default();
         volume_state.select(Some(0));
 
-        Ok(Self {
+        let mut app = Self {
             should_quit: false,
             status_message: None,
             screen: Screen::Browse,
@@ -338,6 +325,8 @@ impl App {
             query_chat_height: 0,
             query_chat_width: 0,
             query_task: None,
+            query_deltas: None,
+            streaming_reply: String::new(),
             extracted_references: Vec::new(),
             references_state: ListState::default(),
 
@@ -345,9 +334,16 @@ impl App {
             selected_verse_idx: None,
             selected_range: None,
 
-            session_context: Vec::new(),
+            session_context,
             context_state: ListState::default(),
             show_context_panel: false,
+
+            study,
+            notes,
+            show_note_input: false,
+            note_input: String::new(),
+            note_cursor: 0,
+            note_target: None,
 
             browsed_chapters: Vec::new(),
 
@@ -358,8 +354,7 @@ impl App {
             model_picker_state: ListState::default(),
 
             current_provider,
-            claude_client,
-            openai_client,
+            assistant,
             show_provider_picker: false,
             provider_picker_state: ListState::default(),
 
@@ -376,14 +371,110 @@ impl App {
 
             scripture_db,
             embeddings_db,
-            ollama,
             selected_model,
 
             cached_volumes,
             cached_books: Vec::new(),
             cached_chapters: Vec::new(),
             cached_verses: Vec::new(),
-        })
+        };
+
+        // Resume where the user left off
+        if let Some((book, chapter)) = last_position {
+            app.open_chapter(&book, chapter);
+        }
+
+        Ok(app)
+    }
+
+    /// Show a chapter, selecting its volume, book and chapter in the
+    /// navigation lists. Returns false if the chapter doesn't exist.
+    pub fn open_chapter(&mut self, book: &str, chapter: i32) -> bool {
+        let Some(volume) = self
+            .scripture_db
+            .get_volume_for_book(book)
+            .map(str::to_string)
+        else {
+            return false;
+        };
+        let Some(volume_idx) = self.cached_volumes.iter().position(|v| *v == volume) else {
+            return false;
+        };
+        let books = self.scripture_db.get_books_for_volume(&volume);
+        let Some(book_idx) = books.iter().position(|b| b == book) else {
+            return false;
+        };
+        let chapters = self.scripture_db.get_chapters_for_book(book);
+        let Some(chapter_idx) = chapters.iter().position(|&c| c == chapter) else {
+            return false;
+        };
+
+        if !self.load_verses_for(book, chapter) {
+            return false;
+        }
+        self.volume_state.select(Some(volume_idx));
+        self.cached_books = books;
+        self.book_state.select(Some(book_idx));
+        self.cached_chapters = chapters;
+        self.chapter_state.select(Some(chapter_idx));
+        self.nav_level = NavLevel::Chapter;
+        true
+    }
+
+    /// Remember the chapter being read so the next session resumes there
+    fn record_reading(&self, book: &str, chapter: i32) {
+        if let Some(study) = &self.study {
+            let _ = study.record_reading(book, chapter);
+        }
+    }
+
+    /// Add a verse to the saved scriptures (ignored if already saved)
+    pub fn save_verse(&mut self, verse: Scripture) {
+        if self
+            .session_context
+            .iter()
+            .any(|v| v.verse_title == verse.verse_title)
+        {
+            return;
+        }
+        if let Some(study) = &self.study {
+            let _ = study.save_verse(&verse.verse_title);
+        }
+        self.session_context.push(verse);
+    }
+
+    /// Open the note editor for the selected verse, pre-filled with its note
+    pub fn start_editing_note(&mut self) {
+        if let Some(title) = self.get_selected_verse().map(|v| v.verse_title.clone()) {
+            self.note_input = self.notes.get(&title).cloned().unwrap_or_default();
+            self.note_cursor = self.note_input.chars().count();
+            self.note_target = Some(title);
+            self.show_note_input = true;
+        }
+    }
+
+    /// Save the note being edited (blank text deletes the note) and close the editor
+    pub fn finish_editing_note(&mut self) {
+        if let Some(title) = self.note_target.take() {
+            let body = self.note_input.trim().to_string();
+            if let Some(study) = &self.study {
+                let _ = study.set_note(&title, &body);
+            }
+            if body.is_empty() {
+                self.notes.remove(&title);
+            } else {
+                self.notes.insert(title, body);
+            }
+        }
+        self.cancel_editing_note();
+    }
+
+    /// Close the note editor without saving
+    pub fn cancel_editing_note(&mut self) {
+        self.show_note_input = false;
+        self.note_input.clear();
+        self.note_cursor = 0;
+        self.note_target = None;
     }
 
     // Navigation helpers
@@ -611,6 +702,8 @@ impl App {
                 Some(0)
             };
 
+            self.record_reading(&book, chapter);
+
             // Track browsed chapter (lightweight, not individual verses)
             if !self
                 .browsed_chapters
@@ -641,6 +734,8 @@ impl App {
         self.verse_line_offset = 0;
         self.last_scroll_direction = ScrollDirection::Down;
         self.selected_verse_idx = Some(0);
+
+        self.record_reading(book, chapter);
 
         // Track browsed chapter
         let book_owned = book.to_string();
@@ -697,37 +792,17 @@ impl App {
             return;
         }
 
-        let query = &self.search_input.clone();
-        let limit = 50;
-        let semantic_limit = 20; // Show up to 20 semantic results first
-        let mut combined_results: Vec<Scripture> = Vec::new();
-        let mut seen_titles: HashSet<String> = HashSet::new();
-
-        // Try semantic search if embeddings are available (uses local ONNX model)
-        if let Some(embeddings) = &mut self.embeddings_db {
-            // Search embeddings for semantically similar verses (embeds query locally)
-            if let Ok(semantic_matches) = embeddings.search(query, semantic_limit) {
-                // Convert to Scripture objects
-                for (verse_title, _score) in semantic_matches {
-                    if let Some(scripture) = self.scripture_db.get_by_title(&verse_title) {
-                        seen_titles.insert(verse_title);
-                        combined_results.push(scripture.clone());
-                    }
-                }
-            }
-        }
-
-        // Add keyword search results (deduped)
-        let keyword_results = self.scripture_db.search(query, limit);
-        for scripture in keyword_results {
-            if !seen_titles.contains(&scripture.verse_title) {
-                seen_titles.insert(scripture.verse_title.clone());
-                combined_results.push(scripture.clone());
-                if combined_results.len() >= limit {
-                    break;
-                }
-            }
-        }
+        // Up to 20 semantic results first, 50 results in total
+        let combined_results: Vec<Scripture> = combined_search(
+            &self.scripture_db,
+            self.embeddings_db.as_ref(),
+            &self.search_input,
+            20,
+            50,
+        )
+        .into_iter()
+        .map(|hit| hit.scripture.clone())
+        .collect();
 
         self.search_results = combined_results;
         if !self.search_results.is_empty() {
@@ -837,6 +912,7 @@ impl App {
                 ) {
                     let verses = self.scripture_db.get_verses_for_chapter(book, chapter);
                     self.cached_verses = verses.into_iter().cloned().collect();
+                    self.record_reading(book, chapter);
                 }
             }
 
@@ -877,6 +953,7 @@ impl App {
                         .scripture_db
                         .get_verses_for_chapter(&range.book_title, range.chapter_number);
                     self.cached_verses = verses.into_iter().cloned().collect();
+                    self.record_reading(&range.book_title, range.chapter_number);
 
                     // Store the range for highlighting multiple verses
                     self.selected_range = Some(range.clone());
@@ -1011,173 +1088,64 @@ impl App {
 
     /// Navigate to the next chapter within the current volume.
     /// Returns true if navigation was successful, false if at volume boundary.
-    /// Uses atomic state updates - only modifies navigation state after verses load successfully.
     fn navigate_to_next_chapter(&mut self) -> bool {
-        let volume = match self.selected_volume() {
-            Some(v) => v.clone(),
-            None => return false,
-        };
-
-        let book = match self.selected_book() {
-            Some(b) => b.clone(),
-            None => return false,
-        };
-
-        // ALWAYS refresh cached_chapters from the database to ensure consistency
-        // This fixes issues where initial navigation left stale state
-        self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
-        if self.cached_chapters.is_empty() {
-            return false;
-        }
-
-        let current_chapter_idx = match self.chapter_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        // Try to go to next chapter in current book
-        let next_chapter_idx = current_chapter_idx + 1;
-        if next_chapter_idx < self.cached_chapters.len() {
-            // Get the chapter number BEFORE updating state
-            let next_chapter = match self.cached_chapters.get(next_chapter_idx) {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update state if successful
-            if self.load_verses_for(&book, next_chapter) {
-                self.chapter_state.select(Some(next_chapter_idx));
-                return true;
-            }
-            return false;
-        }
-
-        // At last chapter of book - try to go to next book in volume
-        let books = self.scripture_db.get_books_for_volume(&volume);
-        let current_book_idx = match self.book_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        let next_book_idx = current_book_idx + 1;
-        if next_book_idx < books.len() {
-            // Get the next book name
-            let next_book = match books.get(next_book_idx) {
-                Some(b) => b.clone(),
-                None => return false,
-            };
-
-            // Load chapters for the new book
-            let new_chapters = self.scripture_db.get_chapters_for_book(&next_book);
-            if new_chapters.is_empty() {
-                return false;
-            }
-
-            // Get first chapter number
-            let first_chapter = match new_chapters.first() {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update ALL state if successful
-            if self.load_verses_for(&next_book, first_chapter) {
-                self.book_state.select(Some(next_book_idx));
-                self.cached_books = books;
-                self.cached_chapters = new_chapters;
-                self.chapter_state.select(Some(0));
-                self.chapter_scroll = 0;
-                return true;
-            }
-        }
-
-        // At last chapter of last book in volume - can't go further
-        false
+        self.navigate_to_adjacent_chapter(true)
     }
 
     /// Navigate to the previous chapter within the current volume.
     /// Returns true if navigation was successful, false if at volume boundary.
-    /// Uses atomic state updates - only modifies navigation state after verses load successfully.
     fn navigate_to_prev_chapter(&mut self) -> bool {
-        let volume = match self.selected_volume() {
-            Some(v) => v.clone(),
-            None => return false,
-        };
+        self.navigate_to_adjacent_chapter(false)
+    }
 
-        let book = match self.selected_book() {
-            Some(b) => b.clone(),
-            None => return false,
+    /// Move to the next or previous chapter, crossing into the adjacent book
+    /// of the same volume when needed. Navigation state is only updated after
+    /// the new chapter's verses load successfully.
+    fn navigate_to_adjacent_chapter(&mut self, forward: bool) -> bool {
+        let Some(book) = self.selected_book().cloned() else {
+            return false;
         };
 
         // ALWAYS refresh cached_chapters from the database to ensure consistency
         // This fixes issues where initial navigation left stale state
         self.cached_chapters = self.scripture_db.get_chapters_for_book(&book);
-        if self.cached_chapters.is_empty() {
+        let Some(chapter) = self.selected_chapter() else {
+            return false;
+        };
+
+        let target = if forward {
+            self.scripture_db.next_chapter(&book, chapter)
+        } else {
+            self.scripture_db.previous_chapter(&book, chapter)
+        };
+        let Some((new_book, new_chapter)) = target else {
+            return false;
+        };
+
+        if !self.load_verses_for(&new_book, new_chapter) {
             return false;
         }
 
-        let current_chapter_idx = match self.chapter_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        // Try to go to previous chapter in current book
-        if current_chapter_idx > 0 {
-            let prev_chapter_idx = current_chapter_idx - 1;
-            // Get the chapter number BEFORE updating state
-            let prev_chapter = match self.cached_chapters.get(prev_chapter_idx) {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update state if successful
-            if self.load_verses_for(&book, prev_chapter) {
-                self.chapter_state.select(Some(prev_chapter_idx));
-                return true;
+        let changed_book = new_book != book;
+        if changed_book {
+            if let Some(volume) = self.selected_volume().cloned() {
+                self.cached_books = self.scripture_db.get_books_for_volume(&volume);
             }
-            return false;
+            let book_idx = self.cached_books.iter().position(|b| *b == new_book);
+            self.book_state.select(book_idx);
+            self.cached_chapters = self.scripture_db.get_chapters_for_book(&new_book);
         }
 
-        // At first chapter of book - try to go to previous book in volume
-        let books = self.scripture_db.get_books_for_volume(&volume);
-        let current_book_idx = match self.book_state.selected() {
-            Some(idx) => idx,
-            None => return false,
-        };
-
-        if current_book_idx > 0 {
-            let prev_book_idx = current_book_idx - 1;
-            // Get the previous book name
-            let prev_book = match books.get(prev_book_idx) {
-                Some(b) => b.clone(),
-                None => return false,
-            };
-
-            // Load chapters for the previous book
-            let new_chapters = self.scripture_db.get_chapters_for_book(&prev_book);
-            if new_chapters.is_empty() {
-                return false;
-            }
-
-            // Get last chapter index and number
-            let last_chapter_idx = new_chapters.len() - 1;
-            let last_chapter = match new_chapters.get(last_chapter_idx) {
-                Some(&ch) => ch,
-                None => return false,
-            };
-
-            // Try to load verses - only update ALL state if successful
-            if self.load_verses_for(&prev_book, last_chapter) {
-                self.book_state.select(Some(prev_book_idx));
-                self.cached_books = books;
-                self.cached_chapters = new_chapters;
-                self.chapter_state.select(Some(last_chapter_idx));
-                self.chapter_scroll = last_chapter_idx;
-                return true;
-            }
+        let chapter_idx = self
+            .cached_chapters
+            .iter()
+            .position(|&c| c == new_chapter)
+            .unwrap_or(0);
+        self.chapter_state.select(Some(chapter_idx));
+        if changed_book {
+            self.chapter_scroll = chapter_idx;
         }
-
-        // At first chapter of first book in volume - can't go further
-        false
+        true
     }
 
     /// Clear the selected range (called when leaving AI mode or jumping to different reference)
@@ -1203,6 +1171,22 @@ impl App {
         if self.query_loading {
             self.animation_frame = (self.animation_frame + 1) % 3;
         }
+    }
+
+    /// Append streamed pieces of the AI reply. Returns true if any arrived.
+    pub fn receive_reply_deltas(&mut self) -> bool {
+        let Some(deltas) = &mut self.query_deltas else {
+            return false;
+        };
+        let mut received = false;
+        while let Ok(delta) = deltas.try_recv() {
+            self.streaming_reply.push_str(&delta);
+            received = true;
+        }
+        if received {
+            self.scroll_query_to_bottom();
+        }
+        received
     }
 
     /// Scroll chat to bottom so "Thinking..." is visible
@@ -1231,8 +1215,16 @@ impl App {
             total_lines += 1; // Blank line after message
         }
 
-        // Add lines for "Thinking..." indicator
-        total_lines += 2; // "AI:" + "Thinking..."
+        // Add lines for the reply in progress, or the "Thinking..." indicator
+        total_lines += 1; // "AI:"
+        if self.streaming_reply.is_empty() {
+            total_lines += 1; // "Thinking..."
+        } else {
+            for line in self.streaming_reply.lines() {
+                let char_count = line.chars().count();
+                total_lines += ((char_count / wrap_width) + 1) as u16;
+            }
+        }
 
         let visible_height = if self.query_chat_height > 0 {
             self.query_chat_height
@@ -1264,7 +1256,10 @@ impl App {
     pub fn remove_selected_context(&mut self) {
         if let Some(i) = self.context_state.selected() {
             if i < self.session_context.len() {
-                self.session_context.remove(i);
+                let removed = self.session_context.remove(i);
+                if let Some(study) = &self.study {
+                    let _ = study.remove_saved_verse(&removed.verse_title);
+                }
                 // Adjust selection
                 if self.session_context.is_empty() {
                     self.context_state.select(None);
@@ -1322,37 +1317,9 @@ impl App {
         self.provider_picker_state.select(Some(i.saturating_sub(1)));
     }
 
-    pub fn get_models_for_provider(&self, provider: Provider) -> Vec<String> {
-        match provider {
-            Provider::Ollama => Vec::new(), // Will be fetched async
-            Provider::Claude => ClaudeClient::list_models(),
-            Provider::OpenAI => OpenAIClient::list_models(),
-        }
-    }
-
-    /// Returns the source of the API key for a provider: "env", "config", or None
-    pub fn get_key_source(&self, provider: Provider) -> Option<&'static str> {
-        match provider {
-            Provider::Ollama => Some("local"),
-            Provider::Claude => {
-                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                    Some("env")
-                } else if self.claude_client.is_some() {
-                    Some("config")
-                } else {
-                    None
-                }
-            }
-            Provider::OpenAI => {
-                if std::env::var("OPENAI_API_KEY").is_ok() {
-                    Some("env")
-                } else if self.openai_client.is_some() {
-                    Some("config")
-                } else {
-                    None
-                }
-            }
-        }
+    /// Where the API key for a provider comes from, or None if it needs one
+    pub fn get_key_source(&self, provider: Provider) -> Option<KeySource> {
+        self.assistant.key_source(provider)
     }
 
     /// Scroll adjustment is now handled in render_content() based on line_scroll

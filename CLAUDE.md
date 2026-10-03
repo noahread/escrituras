@@ -15,11 +15,17 @@ cargo build -p escrituras-core
 cargo build -p escrituras-tui
 cargo build -p escrituras-tauri
 
-# Tests
-cargo test                   # All tests (core + TUI)
+# Tests (what CI runs on Linux, macOS and Windows)
+cargo fmt --all --check
+cargo clippy -p escrituras-core -p escrituras-tui --all-targets -- -D warnings
+cargo test -p escrituras-core -p escrituras-tui
 cargo test -p escrituras-core   # Core library tests only
 cargo test test_name         # Single test
 cargo test -- --nocapture    # With output
+
+# FFI bindings (Linux and macOS)
+cargo test -p escrituras-ffi
+cargo run -p escrituras-ffi --bin uniffi-bindgen -- generate --library target/debug/libescrituras_ffi.so --language swift --out-dir out/
 
 # Release build
 cargo build --release -p escrituras-tui   # Binary at target/release/scriptures
@@ -32,20 +38,25 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run -- --mcp
 
 ### Workspace Structure
 
-The project is organized as a Cargo workspace with three crates:
+The project is organized as a Cargo workspace with four crates:
 
 ```
 crates/
 ├── escrituras-core/     # Shared library (no UI dependencies)
 │   └── src/
 │       ├── lib.rs       # Public exports
-│       ├── scripture.rs # Scripture data, search, reference extraction
+│       ├── scripture.rs # Scripture data, indexes, keyword search, navigation, reference extraction
 │       ├── embeddings.rs # Semantic search (ONNX model)
+│       ├── search.rs    # Combined semantic + keyword search
+│       ├── chat.rs      # AI prompt building and streaming provider dispatch (Assistant)
+│       ├── paths.rs     # Locating data files (DataPaths)
 │       ├── config.rs    # Configuration persistence
 │       ├── provider.rs  # AI provider enum
 │       ├── mcp.rs       # MCP server implementation
 │       ├── state.rs     # UI-agnostic types (ChatMessage, ChatRole)
-│       └── ai/          # AI provider clients
+│       ├── study.rs     # Saved verses, notes, reading history (SQLite)
+│       └── ai/          # AI provider clients (streaming)
+│           ├── stream.rs  # SSE / NDJSON parsing
 │           ├── claude.rs
 │           ├── openai.rs
 │           └── ollama.rs
@@ -57,6 +68,11 @@ crates/
 │       ├── handler.rs   # Keyboard/mouse handling
 │       ├── ui.rs        # Ratatui rendering
 │       └── tui.rs       # Terminal setup/teardown
+│
+├── escrituras-ffi/      # UniFFI bindings for native apps (Swift)
+│   └── src/
+│       ├── lib.rs       # Library object, records, ReplyListener callback
+│       └── bin/uniffi-bindgen.rs  # Bindings generator
 │
 └── escrituras-tauri/    # Tauri desktop app (scaffolding)
     └── src/
@@ -73,12 +89,18 @@ crates/
 
 1. `scripture.rs` - Loads JSON scripture data, builds indexes, provides search with stemming
 2. `embeddings.rs` - Loads precomputed embeddings (.npy), runs local ONNX model (BGE-small-en-v1.5) for semantic search
-3. Combined results: MCP/TUI search merges semantic + keyword results, deduplicating by verse title
+3. `search.rs` - `combined_search()` merges semantic + keyword results, deduplicating by verse title (used by MCP and TUI)
+
+Front-ends should stay thin: logic shared by more than one UI (search, prompts, navigation, data loading) belongs in `escrituras-core`, and core and the TUI must stay cross-platform (no OS-specific code).
 
 ### Key Types (from escrituras-core)
 
-- `ScriptureDb` - Scripture data and search
+- `ScriptureDb` - Scripture data, keyword search, chapter navigation
 - `EmbeddingsDb` - Semantic search engine
+- `DataPaths` - Finds scripture data and embeddings on disk
+- `combined_search`, `SearchHit` - Semantic + keyword search
+- `Assistant`, `StudyContext`, `StudyPrompt`, `build_study_prompt` - AI chat; `Assistant::reply` streams text through an `OnDelta` callback
+- `StudyStore`, `Note` - Persistent saved verses, notes and reading history (`<config dir>/escrituras/study.db`)
 - `Scripture`, `ScriptureRange` - Data structures
 - `ChatMessage`, `ChatRole` - UI-agnostic chat types
 - `ClaudeClient`, `OpenAIClient`, `OllamaClient` - AI providers
@@ -116,9 +138,9 @@ The server exposes 5 tools via `crates/escrituras-core/src/mcp.rs`:
 
 ## Data Files
 
-Scripture data and embeddings are loaded from:
+Scripture data and embeddings are located by `DataPaths::discover()`, which checks:
 1. Local `lds-scriptures-2020.12.08/` and `data/` (development)
-2. `~/.config/escrituras/` (installed via `install.sh`)
+2. `<config dir>/escrituras/` (installed via `install.sh`; `~/.config` on Linux, `~/Library/Application Support` on macOS)
 
 To regenerate embeddings:
 ```bash
