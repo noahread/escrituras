@@ -1,9 +1,10 @@
 use escrituras_core::{
     combined_search, Assistant, ChatMessage, Config, DataPaths, EmbeddingsDb, KeySource, Provider,
-    Scripture, ScriptureDb, ScriptureRange,
+    Scripture, ScriptureDb, ScriptureRange, StudyStore,
 };
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -172,6 +173,17 @@ pub struct App {
     pub context_state: ListState, // For navigating context list
     pub show_context_panel: bool, // Toggle between scripture and context view
 
+    // Persistent study data (None if the database couldn't be opened, in
+    // which case saved verses and notes only last for this session)
+    pub study: Option<StudyStore>,
+    pub notes: HashMap<String, String>, // verse_title -> note text
+
+    // Note editor state
+    pub show_note_input: bool,
+    pub note_input: String,
+    pub note_cursor: usize,
+    pub note_target: Option<String>, // verse_title being edited
+
     // Browsed chapters (for AI context, lightweight tracking)
     pub browsed_chapters: Vec<(String, i32)>, // (book_title, chapter_number)
 
@@ -241,12 +253,32 @@ impl App {
         // Load embeddings if available (for semantic search)
         let embeddings_db = paths.load_embeddings();
 
+        // Saved verses, notes and the last chapter read come from the study database
+        let study = StudyStore::open_default().ok();
+        let session_context: Vec<Scripture> = study
+            .as_ref()
+            .and_then(|s| s.saved_verses().ok())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|title| scripture_db.get_by_title(title).cloned())
+            .collect();
+        let notes: HashMap<String, String> = study
+            .as_ref()
+            .and_then(|s| s.notes().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|note| (note.verse_title, note.body))
+            .collect();
+        let last_position = study
+            .as_ref()
+            .and_then(|s| s.last_position().ok().flatten());
+
         let cached_volumes: Vec<String> = scripture_db.get_volumes().to_vec();
 
         let mut volume_state = ListState::default();
         volume_state.select(Some(0));
 
-        Ok(Self {
+        let mut app = Self {
             should_quit: false,
             screen: Screen::Browse,
             input_mode: InputMode::Normal,
@@ -291,9 +323,16 @@ impl App {
             selected_verse_idx: None,
             selected_range: None,
 
-            session_context: Vec::new(),
+            session_context,
             context_state: ListState::default(),
             show_context_panel: false,
+
+            study,
+            notes,
+            show_note_input: false,
+            note_input: String::new(),
+            note_cursor: 0,
+            note_target: None,
 
             browsed_chapters: Vec::new(),
 
@@ -327,7 +366,104 @@ impl App {
             cached_books: Vec::new(),
             cached_chapters: Vec::new(),
             cached_verses: Vec::new(),
-        })
+        };
+
+        // Resume where the user left off
+        if let Some((book, chapter)) = last_position {
+            app.open_chapter(&book, chapter);
+        }
+
+        Ok(app)
+    }
+
+    /// Show a chapter, selecting its volume, book and chapter in the
+    /// navigation lists. Returns false if the chapter doesn't exist.
+    pub fn open_chapter(&mut self, book: &str, chapter: i32) -> bool {
+        let Some(volume) = self
+            .scripture_db
+            .get_volume_for_book(book)
+            .map(str::to_string)
+        else {
+            return false;
+        };
+        let Some(volume_idx) = self.cached_volumes.iter().position(|v| *v == volume) else {
+            return false;
+        };
+        let books = self.scripture_db.get_books_for_volume(&volume);
+        let Some(book_idx) = books.iter().position(|b| b == book) else {
+            return false;
+        };
+        let chapters = self.scripture_db.get_chapters_for_book(book);
+        let Some(chapter_idx) = chapters.iter().position(|&c| c == chapter) else {
+            return false;
+        };
+
+        if !self.load_verses_for(book, chapter) {
+            return false;
+        }
+        self.volume_state.select(Some(volume_idx));
+        self.cached_books = books;
+        self.book_state.select(Some(book_idx));
+        self.cached_chapters = chapters;
+        self.chapter_state.select(Some(chapter_idx));
+        self.nav_level = NavLevel::Chapter;
+        true
+    }
+
+    /// Remember the chapter being read so the next session resumes there
+    fn record_reading(&self, book: &str, chapter: i32) {
+        if let Some(study) = &self.study {
+            let _ = study.record_reading(book, chapter);
+        }
+    }
+
+    /// Add a verse to the saved scriptures (ignored if already saved)
+    pub fn save_verse(&mut self, verse: Scripture) {
+        if self
+            .session_context
+            .iter()
+            .any(|v| v.verse_title == verse.verse_title)
+        {
+            return;
+        }
+        if let Some(study) = &self.study {
+            let _ = study.save_verse(&verse.verse_title);
+        }
+        self.session_context.push(verse);
+    }
+
+    /// Open the note editor for the selected verse, pre-filled with its note
+    pub fn start_editing_note(&mut self) {
+        if let Some(title) = self.get_selected_verse().map(|v| v.verse_title.clone()) {
+            self.note_input = self.notes.get(&title).cloned().unwrap_or_default();
+            self.note_cursor = self.note_input.chars().count();
+            self.note_target = Some(title);
+            self.show_note_input = true;
+        }
+    }
+
+    /// Save the note being edited (blank text deletes the note) and close the editor
+    pub fn finish_editing_note(&mut self) {
+        if let Some(title) = self.note_target.take() {
+            let body = self.note_input.trim().to_string();
+            if let Some(study) = &self.study {
+                let _ = study.set_note(&title, &body);
+            }
+            if body.is_empty() {
+                self.notes.remove(&title);
+            } else {
+                self.notes.insert(title, body);
+            }
+        }
+        self.cancel_editing_note();
+    }
+
+    /// Close the note editor without saving
+    pub fn cancel_editing_note(&mut self) {
+        self.show_note_input = false;
+        self.note_input.clear();
+        self.note_cursor = 0;
+        self.note_target = None;
     }
 
     // Navigation helpers
@@ -555,6 +691,8 @@ impl App {
                 Some(0)
             };
 
+            self.record_reading(&book, chapter);
+
             // Track browsed chapter (lightweight, not individual verses)
             if !self
                 .browsed_chapters
@@ -585,6 +723,8 @@ impl App {
         self.verse_line_offset = 0;
         self.last_scroll_direction = ScrollDirection::Down;
         self.selected_verse_idx = Some(0);
+
+        self.record_reading(book, chapter);
 
         // Track browsed chapter
         let book_owned = book.to_string();
@@ -761,6 +901,7 @@ impl App {
                 ) {
                     let verses = self.scripture_db.get_verses_for_chapter(book, chapter);
                     self.cached_verses = verses.into_iter().cloned().collect();
+                    self.record_reading(book, chapter);
                 }
             }
 
@@ -801,6 +942,7 @@ impl App {
                         .scripture_db
                         .get_verses_for_chapter(&range.book_title, range.chapter_number);
                     self.cached_verses = verses.into_iter().cloned().collect();
+                    self.record_reading(&range.book_title, range.chapter_number);
 
                     // Store the range for highlighting multiple verses
                     self.selected_range = Some(range.clone());
@@ -1066,7 +1208,10 @@ impl App {
     pub fn remove_selected_context(&mut self) {
         if let Some(i) = self.context_state.selected() {
             if i < self.session_context.len() {
-                self.session_context.remove(i);
+                let removed = self.session_context.remove(i);
+                if let Some(study) = &self.study {
+                    let _ = study.remove_saved_verse(&removed.verse_title);
+                }
                 // Adjust selection
                 if self.session_context.is_empty() {
                     self.context_state.select(None);

@@ -10,6 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
+use std::collections::HashMap;
 
 /// Ensure the selected item in a list is visible by adjusting the ListState offset.
 /// This clamps the offset to a valid range where the selected item is always visible.
@@ -82,7 +83,18 @@ struct VerseLayout {
     start_line: usize,          // Global line number where this verse starts
     line_count: usize,          // Number of lines this verse occupies (including trailing blank)
     wrapped_lines: Vec<String>, // Pre-wrapped text lines
+    note_lines: Vec<String>,    // Pre-wrapped note lines shown under the verse (may be empty)
 }
+
+impl VerseLayout {
+    /// Lines of verse text plus note, excluding the trailing blank line
+    fn content_height(&self) -> usize {
+        self.wrapped_lines.len() + self.note_lines.len()
+    }
+}
+
+/// Prefix for each line of a note shown under its verse
+const NOTE_PREFIX: &str = "  ✎ ";
 
 /// Layout information for the entire chapter
 struct ChapterLayout {
@@ -91,7 +103,11 @@ struct ChapterLayout {
 }
 
 /// Calculate the line-based layout for all verses in a chapter
-fn calculate_chapter_layout(verses: &[Scripture], width: usize) -> ChapterLayout {
+fn calculate_chapter_layout(
+    verses: &[Scripture],
+    notes: &HashMap<String, String>,
+    width: usize,
+) -> ChapterLayout {
     let mut layouts = Vec::with_capacity(verses.len());
     let mut current_line = 0;
 
@@ -134,13 +150,20 @@ fn calculate_chapter_layout(verses: &[Scripture], width: usize) -> ChapterLayout
             wrapped.push(String::new());
         }
 
-        let line_count = wrapped.len() + 1; // +1 for blank line after verse
+        let note_width = width.saturating_sub(NOTE_PREFIX.chars().count()).max(1);
+        let note_lines = notes
+            .get(&verse.verse_title)
+            .map(|note| wrap_text_to_width(note, note_width))
+            .unwrap_or_default();
+
+        let line_count = wrapped.len() + note_lines.len() + 1; // +1 for blank line after verse
 
         layouts.push(VerseLayout {
             verse_idx: idx,
             start_line: current_line,
             line_count,
             wrapped_lines: wrapped,
+            note_lines,
         });
 
         current_line += line_count;
@@ -168,7 +191,7 @@ fn calculate_scroll_for_verse(
 
     let verse = &layout.verses[verse_idx];
     let verse_start = verse.start_line + verse_line_offset;
-    let verse_content_height = verse.wrapped_lines.len(); // Exclude trailing blank for visibility check
+    let verse_content_height = verse.content_height(); // Exclude trailing blank for visibility check
     let verse_end = verse.start_line + verse_content_height;
 
     // For verses taller than view, just show from the offset position
@@ -278,7 +301,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     render_footer(app, frame, footer_area);
 
     // Render popups (in order of priority)
-    if app.show_api_key_input {
+    if app.show_note_input {
+        render_note_input(app, frame, area);
+    } else if app.show_api_key_input {
         render_api_key_input(app, frame, area);
     } else if app.show_provider_picker {
         render_provider_picker(app, frame, area);
@@ -349,6 +374,8 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
                         Span::styled(" copy ", label_style),
                         Span::styled(" x ", key_style),
                         Span::styled(" save ", label_style),
+                        Span::styled(" n ", key_style),
+                        Span::styled(" note ", label_style),
                         Span::styled(" f ", key_style),
                         Span::styled(" focus ", label_style),
                         Span::styled(" s ", key_style),
@@ -764,7 +791,7 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
     }
 
     // Calculate layout for all verses (pre-wrap all text)
-    let layout = calculate_chapter_layout(&app.cached_verses, inner_width);
+    let layout = calculate_chapter_layout(&app.cached_verses, &app.notes, inner_width);
     app.total_content_lines = layout.total_lines as u16;
 
     // Determine selected verse
@@ -860,8 +887,22 @@ fn render_content(app: &mut App, frame: &mut Frame, area: Rect) {
             }
         }
 
+        // Note lines under the verse
+        let note_style = Style::default().fg(Color::Green).italic();
+        for (note_idx, note_line) in verse_layout.note_lines.iter().enumerate() {
+            let global_line = verse_layout.start_line + verse_layout.wrapped_lines.len() + note_idx;
+            if global_line >= scroll_start && global_line < scroll_end {
+                let prefix = if note_idx == 0 {
+                    NOTE_PREFIX.to_string()
+                } else {
+                    " ".repeat(NOTE_PREFIX.chars().count())
+                };
+                lines.push(Line::styled(format!("{}{}", prefix, note_line), note_style));
+            }
+        }
+
         // Add blank line after verse (if visible)
-        let blank_line_pos = verse_layout.start_line + verse_layout.wrapped_lines.len();
+        let blank_line_pos = verse_layout.start_line + verse_layout.content_height();
         if blank_line_pos >= scroll_start && blank_line_pos < scroll_end {
             lines.push(Line::default());
         }
@@ -1442,6 +1483,58 @@ fn render_api_key_input(app: &App, frame: &mut Frame, area: Rect) {
 
     let status_area = Rect::new(inner.x, inner.y + 4, inner.width, 1);
     frame.render_widget(status, status_area);
+}
+
+fn render_note_input(app: &App, frame: &mut Frame, area: Rect) {
+    use ratatui::widgets::Clear;
+
+    let verse_title = app.note_target.as_deref().unwrap_or("verse");
+
+    let popup_width = 70.min(area.width.saturating_sub(4));
+    let popup_height = 9.min(area.height.saturating_sub(2));
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Green))
+        .title(format!(" Note on {} ", verse_title));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let instructions = Paragraph::new("Enter to save, Esc to cancel. Clear the text to delete.")
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(instructions, Rect::new(inner.x, inner.y, inner.width, 1));
+
+    // Input wraps across the remaining lines
+    let input_area = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
+    let input = Paragraph::new(app.note_input.as_str())
+        .style(Style::default().fg(Color::White))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(input, input_area);
+
+    // Place the cursor using the same word wrapping as the text
+    let width = input_area.width.max(1) as usize;
+    let before_cursor: String = app.note_input.chars().take(app.note_cursor).collect();
+    let wrapped = wrap_text_to_width(&before_cursor, width);
+    let row = wrapped.len().saturating_sub(1);
+    let col = wrapped.last().map(|l| l.chars().count()).unwrap_or(0);
+    let (row, col) = if col >= width {
+        (row + 1, 0)
+    } else {
+        (row, col)
+    };
+    if row < input_area.height as usize {
+        frame.set_cursor_position((input_area.x + col as u16, input_area.y + row as u16));
+    }
 }
 
 fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {

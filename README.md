@@ -9,7 +9,9 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 - **Semantic Search**: Find verses by meaning, not just keywords (plus stemming: faith → faithful)
 - **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
 - **Multi-Provider AI**: Switch between AI providers seamlessly
-- **Saved Scriptures**: Save verses to a list and include them as context for AI questions
+- **Saved Scriptures**: Save verses to a list and include them as context for AI questions (kept between sessions)
+- **Verse Notes**: Write a note on any verse; it's shown under the verse while reading
+- **Resume Reading**: Reopens the chapter you were last reading
 - **Scripture References**: AI responses include clickable scripture references
 - **MCP Server**: Expose scriptures to AI assistants via Model Context Protocol
 
@@ -100,6 +102,7 @@ scriptures
 | `Enter` | Select / Expand |
 | `Backspace` | Go back |
 | `Tab` | Cycle focus between panels |
+| `n` | Add or edit a note on the selected verse |
 | `q` | Quit |
 
 ### AI Mode
@@ -113,6 +116,8 @@ scriptures
 | `X` | View/manage saved scriptures |
 | `M` | Change AI model |
 | `P` | Change AI provider |
+
+Saved scriptures, notes and your reading position are stored in `study.db` in the config directory (`~/.config/escrituras/` on Linux, `~/Library/Application Support/escrituras/` on macOS).
 
 ### Scripture Selection
 

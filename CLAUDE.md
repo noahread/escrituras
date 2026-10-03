@@ -50,6 +50,7 @@ crates/
 │       ├── provider.rs  # AI provider enum
 │       ├── mcp.rs       # MCP server implementation
 │       ├── state.rs     # UI-agnostic types (ChatMessage, ChatRole)
+│       ├── study.rs     # Saved verses, notes, reading history (SQLite)
 │       └── ai/          # AI provider clients
 │           ├── claude.rs
 │           ├── openai.rs
@@ -89,6 +90,7 @@ Front-ends should stay thin: logic shared by more than one UI (search, prompts, 
 - `DataPaths` - Finds scripture data and embeddings on disk
 - `combined_search`, `SearchHit` - Semantic + keyword search
 - `Assistant`, `StudyContext`, `build_study_prompt` - AI chat
+- `StudyStore`, `Note` - Persistent saved verses, notes and reading history (`<config dir>/escrituras/study.db`)
 - `Scripture`, `ScriptureRange` - Data structures
 - `ChatMessage`, `ChatRole` - UI-agnostic chat types
 - `ClaudeClient`, `OpenAIClient`, `OllamaClient` - AI providers

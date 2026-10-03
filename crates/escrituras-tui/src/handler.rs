@@ -54,6 +54,11 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<()> {
 }
 
 async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
+    if app.show_note_input {
+        handle_note_input(app, key);
+        return Ok(());
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') => app.should_quit = true,
@@ -146,16 +151,14 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                 }
             }
         }
+        // Add or edit a note on the selected verse
+        KeyCode::Char('n') if app.focus == FocusPane::Content && !app.show_context_panel => {
+            app.start_editing_note();
+        }
         KeyCode::Char('x') => {
             if app.focus == FocusPane::Content && !app.show_context_panel {
                 if let Some(verse) = app.get_selected_verse().cloned() {
-                    if !app
-                        .session_context
-                        .iter()
-                        .any(|v| v.verse_title == verse.verse_title)
-                    {
-                        app.session_context.push(verse);
-                    }
+                    app.save_verse(verse);
                 }
             }
         }
@@ -272,13 +275,7 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
             if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
                 if let Some(i) = app.search_state.selected() {
                     if let Some(scripture) = app.search_results.get(i).cloned() {
-                        if !app
-                            .session_context
-                            .iter()
-                            .any(|v| v.verse_title == scripture.verse_title)
-                        {
-                            app.session_context.push(scripture);
-                        }
+                        app.save_verse(scripture);
                     }
                 }
             }
@@ -626,13 +623,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('x') => {
             if app.focus == FocusPane::Content {
                 if let Some(verse) = app.get_selected_verse().cloned() {
-                    if !app
-                        .session_context
-                        .iter()
-                        .any(|v| v.verse_title == verse.verse_title)
-                    {
-                        app.session_context.push(verse);
-                    }
+                    app.save_verse(verse);
                 }
             }
         }
@@ -767,13 +758,7 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
         // Save to context
         KeyCode::Char('x') => {
             if let Some(verse) = app.get_focus_verse().cloned() {
-                if !app
-                    .session_context
-                    .iter()
-                    .any(|v| v.verse_title == verse.verse_title)
-                {
-                    app.session_context.push(verse);
-                }
+                app.save_verse(verse);
             }
         }
 
@@ -973,6 +958,39 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+/// Keys while the note editor popup is open
+fn handle_note_input(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.cancel_editing_note(),
+        KeyCode::Enter => app.finish_editing_note(),
+        KeyCode::Backspace => {
+            if app.note_cursor > 0 {
+                app.note_cursor -= 1;
+                let byte_pos = char_to_byte_index(&app.note_input, app.note_cursor);
+                app.note_input.remove(byte_pos);
+            }
+        }
+        KeyCode::Delete => {
+            if app.note_cursor < app.note_input.chars().count() {
+                let byte_pos = char_to_byte_index(&app.note_input, app.note_cursor);
+                app.note_input.remove(byte_pos);
+            }
+        }
+        KeyCode::Left => app.note_cursor = app.note_cursor.saturating_sub(1),
+        KeyCode::Right => {
+            app.note_cursor = (app.note_cursor + 1).min(app.note_input.chars().count());
+        }
+        KeyCode::Home => app.note_cursor = 0,
+        KeyCode::End => app.note_cursor = app.note_input.chars().count(),
+        KeyCode::Char(c) => {
+            let byte_pos = char_to_byte_index(&app.note_input, app.note_cursor);
+            app.note_input.insert(byte_pos, c);
+            app.note_cursor += 1;
+        }
+        _ => {}
+    }
 }
 
 /// Check if a point is within a rectangle
