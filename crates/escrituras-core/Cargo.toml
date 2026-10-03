@@ -23,6 +23,9 @@ regex = "1.0"
 rust-stemmers = "1.2"
 dirs = "5.0"
 
+# Persistent study data (saved verses, notes, reading history)
+rusqlite = { version = "0.40", features = ["bundled"] }
+
 # Semantic search (local ONNX-based embeddings)
 fastembed = { version = "=5.5.0", default-features = false, features = ["ort-download-binaries", "hf-hub-native-tls"] }
 ndarray = "0.16"

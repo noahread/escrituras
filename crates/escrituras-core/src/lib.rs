@@ -8,6 +8,7 @@ pub mod provider;
 pub mod scripture;
 pub mod search;
 pub mod state;
+pub mod study;
 
 // Re-export main types for convenience
 pub use ai::{ClaudeClient, OllamaClient, OpenAIClient};
@@ -19,3 +20,4 @@ pub use provider::Provider;
 pub use scripture::{Scripture, ScriptureDb, ScriptureRange};
 pub use search::{combined_search, SearchHit};
 pub use state::{ChatMessage, ChatRole};
+pub use study::{Note, StudyStore};
