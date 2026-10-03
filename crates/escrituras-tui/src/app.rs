@@ -5,6 +5,7 @@ use escrituras_core::{
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -112,9 +113,14 @@ pub struct NavigationState {
     pub verse_line_offset: usize,
 }
 
+/// How long a footer status message stays visible
+const STATUS_MESSAGE_DURATION: Duration = Duration::from_secs(4);
+
 pub struct App {
     // Core state
     pub should_quit: bool,
+    /// Transient footer message (e.g. a failed clipboard copy) and when it was set
+    pub status_message: Option<(String, Instant)>,
     pub screen: Screen,
     pub input_mode: InputMode,
     pub focus: FocusPane,
@@ -295,6 +301,7 @@ impl App {
 
         Ok(Self {
             should_quit: false,
+            status_message: None,
             screen: Screen::Browse,
             input_mode: InputMode::Normal,
             focus: FocusPane::Navigation,
@@ -1176,6 +1183,19 @@ impl App {
     /// Clear the selected range (called when leaving AI mode or jumping to different reference)
     pub fn clear_selected_range(&mut self) {
         self.selected_range = None;
+    }
+
+    /// Show a transient message in the footer
+    pub fn set_status(&mut self, message: impl Into<String>) {
+        self.status_message = Some((message.into(), Instant::now()));
+    }
+
+    /// The footer status message, if one was set recently
+    pub fn active_status(&self) -> Option<&str> {
+        self.status_message
+            .as_ref()
+            .filter(|(_, set_at)| set_at.elapsed() < STATUS_MESSAGE_DURATION)
+            .map(|(message, _)| message.as_str())
     }
 
     /// Tick animation frame (called by Tick event)

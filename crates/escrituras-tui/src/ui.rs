@@ -598,6 +598,15 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         _ => vec![],
     };
 
+    // A status message (e.g. a failed copy) temporarily replaces the hints
+    let hints = match app.active_status() {
+        Some(message) => vec![Span::styled(
+            format!(" {} ", message),
+            Style::default().bg(Color::Red).fg(Color::White),
+        )],
+        None => hints,
+    };
+
     let footer_content = Line::from(
         vec![
             Span::styled(mode_text, mode_style),

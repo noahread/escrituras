@@ -1,4 +1,5 @@
 mod app;
+mod clipboard;
 mod handler;
 mod tui;
 mod ui;
