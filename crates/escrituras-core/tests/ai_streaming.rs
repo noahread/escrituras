@@ -141,6 +141,7 @@ async fn claude_streams_text_and_sends_messages() {
         Some("server-side-fallback-2026-07-01")
     );
     assert_eq!(request.body["model"], "claude-opus-5-5");
+    assert_eq!(request.body["max_tokens"], 64000);
     assert_eq!(request.body["system"], "Be helpful");
     assert_eq!(request.body["stream"], true);
     assert_eq!(request.body["fallbacks"], "default");
@@ -152,6 +153,30 @@ async fn claude_streams_text_and_sends_messages() {
             {"role": "user", "content": "And hope?"}
         ])
     );
+}
+
+#[tokio::test]
+async fn claude_caps_max_tokens_for_legacy_models() {
+    for (model, max_tokens) in [
+        ("claude-3-5-sonnet-20241022", 8192),
+        ("claude-3-5-haiku-20241022", 8192),
+        ("claude-3-opus-20240229", 4096),
+    ] {
+        let (url, server) = mock_server(
+            "200 OK",
+            "text/event-stream",
+            vec!["event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"],
+        )
+        .await;
+        let client = ClaudeClient::with_base_url("k", &url);
+        client
+            .stream_chat(model, "s", &conversation(), &mut |_| {})
+            .await
+            .unwrap();
+        let request = server.await.unwrap();
+        assert_eq!(request.body["max_tokens"], max_tokens, "{model}");
+        assert!(request.body.get("fallbacks").is_none(), "{model}");
+    }
 }
 
 #[tokio::test]

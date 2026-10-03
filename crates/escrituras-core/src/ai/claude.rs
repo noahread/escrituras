@@ -5,8 +5,15 @@ use reqwest::Client;
 use serde::Serialize;
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
-/// Streaming leaves room for long answers without HTTP timeouts
+/// Ceiling for `max_tokens`. Streaming leaves room for long answers without
+/// HTTP timeouts. Models with a smaller output cap get that cap instead:
+/// Anthropic returns 400 when `max_tokens` is above it.
 const MAX_TOKENS: u32 = 64000;
+/// Claude 3.5 Sonnet and Haiku (`claude-3-5-sonnet-20241022`,
+/// `claude-3-5-haiku-20241022`)
+const CLAUDE_3_5_MAX_TOKENS: u32 = 8192;
+/// Claude 3 Opus, Sonnet, and Haiku (`claude-3-opus-20240229`)
+const CLAUDE_3_MAX_TOKENS: u32 = 4096;
 /// Beta header for `fallbacks: "default"`, which re-runs a request that
 /// Claude's safety classifiers decline on a recommended fallback model
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
@@ -68,7 +75,7 @@ impl ClaudeClient {
         let use_fallbacks = FALLBACK_MODELS.contains(&model);
         let request = ClaudeRequest {
             model,
-            max_tokens: MAX_TOKENS,
+            max_tokens: max_tokens_for(model),
             system,
             messages: messages
                 .iter()
@@ -159,5 +166,47 @@ impl ClaudeClient {
             "claude-haiku-4-5".to_string(),
             "claude-fable-5-1".to_string(),
         ]
+    }
+}
+
+/// Output cap to send for `model`. Saved configs can still name ids from the
+/// previous picker, which reject the streaming ceiling.
+fn max_tokens_for(model: &str) -> u32 {
+    if model.starts_with("claude-3-5") {
+        return CLAUDE_3_5_MAX_TOKENS;
+    }
+    // "claude-3-<name>" is the original Claude 3 generation. "claude-3-7"
+    // is Sonnet 3.7, which accepts the streaming ceiling.
+    if let Some(rest) = model.strip_prefix("claude-3-") {
+        if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return CLAUDE_3_MAX_TOKENS;
+        }
+    }
+    MAX_TOKENS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::max_tokens_for;
+
+    #[test]
+    fn legacy_picker_models_stay_within_their_output_cap() {
+        assert_eq!(max_tokens_for("claude-3-5-sonnet-20241022"), 8192);
+        assert_eq!(max_tokens_for("claude-3-5-haiku-20241022"), 8192);
+        assert_eq!(max_tokens_for("claude-3-opus-20240229"), 4096);
+    }
+
+    #[test]
+    fn current_models_use_the_streaming_ceiling() {
+        for model in [
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-4-5",
+            "claude-fable-5-1",
+            "claude-opus-5",
+            "claude-3-7-sonnet-20250219",
+        ] {
+            assert_eq!(max_tokens_for(model), 64000, "{model}");
+        }
     }
 }
