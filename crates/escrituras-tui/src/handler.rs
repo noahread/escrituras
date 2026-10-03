@@ -903,8 +903,16 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                 if app.assistant.is_configured(provider) {
                     let assistant = app.assistant.clone();
                     let model = app.selected_model.clone();
+                    // Pieces of the reply are sent to the UI as they stream in
+                    let (deltas_tx, deltas_rx) = tokio::sync::mpsc::unbounded_channel();
+                    app.query_deltas = Some(deltas_rx);
+                    app.streaming_reply.clear();
                     app.query_task = Some(tokio::spawn(async move {
-                        assistant.ask(provider, &model, &prompt).await
+                        assistant
+                            .reply(provider, &model, &prompt, &mut |delta| {
+                                let _ = deltas_tx.send(delta.to_string());
+                            })
+                            .await
                     }));
                 } else {
                     let name = match provider {

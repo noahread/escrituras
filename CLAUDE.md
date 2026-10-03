@@ -44,14 +44,15 @@ crates/
 │       ├── scripture.rs # Scripture data, indexes, keyword search, navigation, reference extraction
 │       ├── embeddings.rs # Semantic search (ONNX model)
 │       ├── search.rs    # Combined semantic + keyword search
-│       ├── chat.rs      # AI prompt building and provider dispatch (Assistant)
+│       ├── chat.rs      # AI prompt building and streaming provider dispatch (Assistant)
 │       ├── paths.rs     # Locating data files (DataPaths)
 │       ├── config.rs    # Configuration persistence
 │       ├── provider.rs  # AI provider enum
 │       ├── mcp.rs       # MCP server implementation
 │       ├── state.rs     # UI-agnostic types (ChatMessage, ChatRole)
 │       ├── study.rs     # Saved verses, notes, reading history (SQLite)
-│       └── ai/          # AI provider clients
+│       └── ai/          # AI provider clients (streaming)
+│           ├── stream.rs  # SSE / NDJSON parsing
 │           ├── claude.rs
 │           ├── openai.rs
 │           └── ollama.rs
@@ -89,7 +90,7 @@ Front-ends should stay thin: logic shared by more than one UI (search, prompts, 
 - `EmbeddingsDb` - Semantic search engine
 - `DataPaths` - Finds scripture data and embeddings on disk
 - `combined_search`, `SearchHit` - Semantic + keyword search
-- `Assistant`, `StudyContext`, `build_study_prompt` - AI chat
+- `Assistant`, `StudyContext`, `StudyPrompt`, `build_study_prompt` - AI chat; `Assistant::reply` streams text through an `OnDelta` callback
 - `StudyStore`, `Note` - Persistent saved verses, notes and reading history (`<config dir>/escrituras/study.db`)
 - `Scripture`, `ScriptureRange` - Data structures
 - `ChatMessage`, `ChatRole` - UI-agnostic chat types

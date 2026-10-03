@@ -157,6 +157,8 @@ pub struct App {
     pub query_chat_height: u16, // Height of chat area for scroll calculations
     pub query_chat_width: u16,  // Width of chat area for wrap calculations
     pub query_task: Option<tokio::task::JoinHandle<anyhow::Result<String>>>,
+    pub query_deltas: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
+    pub streaming_reply: String, // Reply received so far while query_loading
     pub extracted_references: Vec<ScriptureRange>,
     pub references_state: ListState,
 
@@ -316,6 +318,8 @@ impl App {
             query_chat_height: 0,
             query_chat_width: 0,
             query_task: None,
+            query_deltas: None,
+            streaming_reply: String::new(),
             extracted_references: Vec::new(),
             references_state: ListState::default(),
 
@@ -1149,6 +1153,22 @@ impl App {
         }
     }
 
+    /// Append streamed pieces of the AI reply. Returns true if any arrived.
+    pub fn receive_reply_deltas(&mut self) -> bool {
+        let Some(deltas) = &mut self.query_deltas else {
+            return false;
+        };
+        let mut received = false;
+        while let Ok(delta) = deltas.try_recv() {
+            self.streaming_reply.push_str(&delta);
+            received = true;
+        }
+        if received {
+            self.scroll_query_to_bottom();
+        }
+        received
+    }
+
     /// Scroll chat to bottom so "Thinking..." is visible
     pub fn scroll_query_to_bottom(&mut self) {
         // Use actual chat width for wrap calculation, default to 50 if not set
@@ -1175,8 +1195,16 @@ impl App {
             total_lines += 1; // Blank line after message
         }
 
-        // Add lines for "Thinking..." indicator
-        total_lines += 2; // "AI:" + "Thinking..."
+        // Add lines for the reply in progress, or the "Thinking..." indicator
+        total_lines += 1; // "AI:"
+        if self.streaming_reply.is_empty() {
+            total_lines += 1; // "Thinking..."
+        } else {
+            for line in self.streaming_reply.lines() {
+                let char_count = line.chars().count();
+                total_lines += ((char_count / wrap_width) + 1) as u16;
+            }
+        }
 
         let visible_height = if self.query_chat_height > 0 {
             self.query_chat_height

@@ -55,6 +55,9 @@ async fn run_tui() -> Result<()> {
 
     // Main loop
     loop {
+        // Show any newly streamed pieces of the AI reply
+        app.receive_reply_deltas();
+
         // Draw UI
         terminal.draw(|frame| {
             ui::render(&mut app, frame);
@@ -64,6 +67,19 @@ async fn run_tui() -> Result<()> {
         if let Some(task) = &app.query_task {
             if task.is_finished() {
                 let task = app.query_task.take().unwrap();
+                app.receive_reply_deltas();
+                app.query_deltas = None;
+                let partial = std::mem::take(&mut app.streaming_reply);
+
+                // On failure, keep whatever arrived before the error
+                let error_reply = |error: String| {
+                    if partial.is_empty() {
+                        error
+                    } else {
+                        format!("{}\n\n{}", partial, error)
+                    }
+                };
+
                 match task.await {
                     Ok(Ok(response)) => {
                         // Extract scripture references from the response
@@ -82,14 +98,14 @@ async fn run_tui() -> Result<()> {
                         app.extracted_references.clear();
                         app.chat_messages.push(ChatMessage {
                             role: ChatRole::Assistant,
-                            content: format!("Error: {}", e),
+                            content: error_reply(format!("Error: {}", e)),
                         });
                     }
                     Err(e) => {
                         app.extracted_references.clear();
                         app.chat_messages.push(ChatMessage {
                             role: ChatRole::Assistant,
-                            content: format!("Task error: {}", e),
+                            content: error_reply(format!("Task error: {}", e)),
                         });
                     }
                 }

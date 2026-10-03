@@ -1136,14 +1136,21 @@ fn render_query_screen(app: &mut App, frame: &mut Frame, area: Rect) {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )));
-            // Animated ellipsis: cycles through ".", "..", "..."
-            let dots = ".".repeat((app.animation_frame as usize) + 1);
-            lines.push(Line::from(Span::styled(
-                format!("Thinking{}", dots),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC),
-            )));
+            if app.streaming_reply.is_empty() {
+                // Animated ellipsis: cycles through ".", "..", "..."
+                let dots = ".".repeat((app.animation_frame as usize) + 1);
+                lines.push(Line::from(Span::styled(
+                    format!("Thinking{}", dots),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                )));
+            } else {
+                // The reply so far, as it streams in
+                for line in app.streaming_reply.lines() {
+                    lines.push(parse_markdown_line(line));
+                }
+            }
         }
 
         Text::from(lines)

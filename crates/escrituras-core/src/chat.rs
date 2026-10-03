@@ -1,10 +1,10 @@
 //! AI-assisted scripture study: prompt building and provider dispatch.
 
-use crate::ai::{ClaudeClient, OllamaClient, OpenAIClient};
+use crate::ai::{ClaudeClient, OllamaClient, OnDelta, OpenAIClient};
 use crate::config::Config;
 use crate::provider::Provider;
 use crate::scripture::Scripture;
-use crate::state::{ChatMessage, ChatRole};
+use crate::state::ChatMessage;
 use anyhow::{anyhow, Result};
 
 const OLLAMA_URL: &str = "http://localhost:11434";
@@ -22,70 +22,59 @@ pub struct StudyContext<'a> {
     pub saved_verses: &'a [Scripture],
 }
 
-/// Build a single prompt from the chat history and study context.
-/// The last message in `chat_history` is the question being asked.
-pub fn build_study_prompt(chat_history: &[ChatMessage], context: &StudyContext) -> String {
-    let mut prompt = String::new();
+/// A request ready to send to an AI provider
+#[derive(Debug, Clone)]
+pub struct StudyPrompt {
+    /// Instructions plus what the user is studying
+    pub system: String,
+    /// The conversation, ending with the user's question
+    pub messages: Vec<ChatMessage>,
+}
 
-    prompt.push_str("You are helping with LDS (Latter-day Saint) scripture study. ");
-    prompt.push_str("When answering, prioritize the Book of Mormon, Doctrine and Covenants, ");
-    prompt.push_str(
-        "and Pearl of Great Price alongside the Bible. Include specific verse citations.\n\n",
-    );
+/// Build the system prompt from the study context and pass the chat history
+/// through as messages. The last message in `chat_history` is the question.
+pub fn build_study_prompt(chat_history: &[ChatMessage], context: &StudyContext) -> StudyPrompt {
+    let mut system = String::new();
+
+    system.push_str("You are helping with LDS (Latter-day Saint) scripture study. ");
+    system.push_str("When answering, prioritize the Book of Mormon, Doctrine and Covenants, ");
+    system.push_str("and Pearl of Great Price alongside the Bible. ");
+    system.push_str("Include specific verse citations, written as full references such as ");
+    system.push_str("\"Alma 32:21\" or \"Mosiah 4:19-21\".");
 
     // Include what the user is currently reading
     if let Some(reading) = context.current_reading {
-        prompt.push_str(&format!("The user is currently reading {}.\n\n", reading));
+        system.push_str(&format!("\n\nThe user is currently reading {}.", reading));
     }
 
     // Include recently browsed chapters (lightweight context)
     if !context.browsed_chapters.is_empty() {
-        prompt.push_str("Recently viewed chapters: ");
-        let chapters: Vec<String> = context
-            .browsed_chapters
+        // The 10 most recently viewed (the list is in viewing order)
+        let recent = &context.browsed_chapters[context.browsed_chapters.len().saturating_sub(10)..];
+        let chapters: Vec<String> = recent
             .iter()
-            .take(10) // Limit to last 10 chapters
             .map(|(book, ch)| format!("{} {}", book, ch))
             .collect();
-        prompt.push_str(&chapters.join(", "));
-        prompt.push_str("\n\n");
+        system.push_str(&format!(
+            "\n\nRecently viewed chapters: {}",
+            chapters.join(", ")
+        ));
     }
 
     if !context.saved_verses.is_empty() {
-        prompt.push_str("Scripture Context:\n");
+        system.push_str("\n\nVerses the user saved for this study:\n");
         for verse in context.saved_verses.iter().take(20) {
-            prompt.push_str(&format!(
+            system.push_str(&format!(
                 "{}: {}\n",
                 verse.verse_title, verse.scripture_text
             ));
         }
-        prompt.push('\n');
     }
 
-    // Include chat history for context
-    if chat_history.len() > 1 {
-        prompt.push_str("Conversation so far:\n");
-        for msg in chat_history
-            .iter()
-            .take(chat_history.len().saturating_sub(1))
-        {
-            match msg.role {
-                ChatRole::User => prompt.push_str(&format!("User: {}\n", msg.content)),
-                ChatRole::Assistant => prompt.push_str(&format!("Assistant: {}\n", msg.content)),
-            }
-        }
-        prompt.push('\n');
+    StudyPrompt {
+        system,
+        messages: chat_history.to_vec(),
     }
-
-    // Add the current question
-    if let Some(last_msg) = chat_history.last() {
-        prompt.push_str("Current question: ");
-        prompt.push_str(&last_msg.content);
-    }
-
-    prompt.push_str("\n\nPlease provide specific scripture references in your answer.");
-
-    prompt
 }
 
 /// Where a provider's credentials come from
@@ -175,16 +164,28 @@ impl Assistant {
         }
     }
 
-    /// Send `prompt` to `model` on `provider` and return the reply
-    pub async fn ask(&self, provider: Provider, model: &str, prompt: &str) -> Result<String> {
+    /// Send `prompt` to `model` on `provider`, calling `on_delta` with each
+    /// piece of the reply as it streams in. Returns the full reply.
+    pub async fn reply(
+        &self,
+        provider: Provider,
+        model: &str,
+        prompt: &StudyPrompt,
+        on_delta: OnDelta<'_>,
+    ) -> Result<String> {
+        let (system, messages) = (prompt.system.as_str(), prompt.messages.as_slice());
         match provider {
-            Provider::Ollama => self.ollama.query(model, prompt).await,
+            Provider::Ollama => {
+                self.ollama
+                    .stream_chat(model, system, messages, on_delta)
+                    .await
+            }
             Provider::Claude => match &self.claude {
-                Some(client) => client.query(model, prompt).await,
+                Some(client) => client.stream_chat(model, system, messages, on_delta).await,
                 None => Err(anyhow!("Claude API key not configured")),
             },
             Provider::OpenAI => match &self.openai {
-                Some(client) => client.query(model, prompt).await,
+                Some(client) => client.stream_chat(model, system, messages, on_delta).await,
                 None => Err(anyhow!("OpenAI API key not configured")),
             },
         }
@@ -194,6 +195,7 @@ impl Assistant {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::ChatRole;
 
     fn message(role: ChatRole, content: &str) -> ChatMessage {
         ChatMessage {
@@ -220,12 +222,13 @@ mod tests {
         let history = [message(ChatRole::User, "What is faith?")];
         let prompt = build_study_prompt(&history, &StudyContext::default());
 
-        assert!(prompt.starts_with("You are helping with LDS"));
-        assert!(prompt.contains("Current question: What is faith?"));
-        assert!(!prompt.contains("Conversation so far"));
-        assert!(!prompt.contains("Scripture Context"));
-        assert!(!prompt.contains("currently reading"));
-        assert!(prompt.ends_with("Please provide specific scripture references in your answer."));
+        assert!(prompt.system.starts_with("You are helping with LDS"));
+        assert!(prompt.system.contains("Include specific verse citations"));
+        assert!(!prompt.system.contains("currently reading"));
+        assert!(!prompt.system.contains("Recently viewed"));
+        assert!(!prompt.system.contains("saved for this study"));
+        assert_eq!(prompt.messages.len(), 1);
+        assert_eq!(prompt.messages[0].content, "What is faith?");
     }
 
     #[test]
@@ -247,14 +250,21 @@ mod tests {
         };
         let prompt = build_study_prompt(&history, &context);
 
-        assert!(prompt.contains("The user is currently reading Alma 32."));
-        assert!(prompt.contains("Recently viewed chapters: Alma 32, Ether 12"));
-        assert!(prompt.contains("Alma 32:21: faith is not to have a perfect knowledge"));
-        assert!(prompt.contains(
-            "Conversation so far:\nUser: What is faith?\nAssistant: Alma 32:21 explains it.\n"
-        ));
-        assert!(!prompt.contains("User: How do I grow it?"));
-        assert!(prompt.contains("Current question: How do I grow it?"));
+        assert!(prompt
+            .system
+            .contains("The user is currently reading Alma 32."));
+        assert!(prompt
+            .system
+            .contains("Recently viewed chapters: Alma 32, Ether 12"));
+        assert!(prompt
+            .system
+            .contains("Alma 32:21: faith is not to have a perfect knowledge"));
+
+        // The conversation is sent as messages, not folded into the prompt
+        assert!(!prompt.system.contains("How do I grow it?"));
+        let roles: Vec<ChatRole> = prompt.messages.iter().map(|m| m.role).collect();
+        assert_eq!(roles, [ChatRole::User, ChatRole::Assistant, ChatRole::User]);
+        assert_eq!(prompt.messages[2].content, "How do I grow it?");
     }
 
     #[test]
@@ -266,8 +276,12 @@ mod tests {
         };
         let prompt = build_study_prompt(&[message(ChatRole::User, "q")], &context);
 
-        assert!(prompt.contains("Alma 10\n"));
-        assert!(!prompt.contains("Alma 11"));
+        // Only the 10 most recent: Alma 3 through Alma 12
+        assert!(prompt
+            .system
+            .contains("Recently viewed chapters: Alma 3, Alma 4,"));
+        assert!(prompt.system.contains("Alma 12"));
+        assert!(!prompt.system.contains("Alma 2,"));
     }
 
     #[test]
@@ -306,8 +320,9 @@ mod tests {
             claude_key_from_env: false,
             openai_key_from_env: false,
         };
+        let prompt = build_study_prompt(&[message(ChatRole::User, "q")], &StudyContext::default());
         let err = assistant
-            .ask(Provider::Claude, "model", "prompt")
+            .reply(Provider::Claude, "model", &prompt, &mut |_| {})
             .await
             .unwrap_err();
         assert_eq!(err.to_string(), "Claude API key not configured");

@@ -7,7 +7,7 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 - **Browse Scriptures**: Navigate by volume, book, and chapter with verse selection
 - **Focus Mode**: Immersive single-verse study with memorization tools
 - **Semantic Search**: Find verses by meaning, not just keywords (plus stemming: faith → faithful)
-- **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
+- **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama; answers stream in as they're written
 - **Multi-Provider AI**: Switch between AI providers seamlessly
 - **Saved Scriptures**: Save verses to a list and include them as context for AI questions (kept between sessions)
 - **Verse Notes**: Write a note on any verse; it's shown under the verse while reading
@@ -174,7 +174,7 @@ Settings are stored in `~/.config/escrituras/config.json`:
 ```json
 {
   "provider": "claude",
-  "default_model": "claude-sonnet-4-20250514",
+  "default_model": "claude-opus-5-5",
   "claude_api_key": "...",
   "openai_api_key": "..."
 }
