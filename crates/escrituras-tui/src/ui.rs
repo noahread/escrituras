@@ -1523,25 +1523,66 @@ fn render_note_input(app: &App, frame: &mut Frame, area: Rect) {
         inner.width,
         inner.height.saturating_sub(2),
     );
-    let input = Paragraph::new(app.note_input.as_str())
-        .style(Style::default().fg(Color::White))
-        .wrap(Wrap { trim: false });
+    // Wrap once and use the same rows to draw the text and place the cursor
+    let width = input_area.width.max(1) as usize;
+    let height = input_area.height as usize;
+    let chars: Vec<char> = app.note_input.chars().collect();
+    let rows = wrap_ranges(&chars, width);
+    let (cursor_row, cursor_col) = cursor_row_col(&rows, app.note_cursor, width);
+
+    // Scroll so the cursor's row is visible
+    let first_row = (cursor_row + 1).saturating_sub(height);
+    let lines: Vec<Line> = rows
+        .iter()
+        .skip(first_row)
+        .take(height)
+        .map(|&(start, end)| Line::raw(chars[start..end].iter().collect::<String>()))
+        .collect();
+    let input = Paragraph::new(lines).style(Style::default().fg(Color::White));
     frame.render_widget(input, input_area);
 
-    // Place the cursor using the same word wrapping as the text
-    let width = input_area.width.max(1) as usize;
-    let before_cursor: String = app.note_input.chars().take(app.note_cursor).collect();
-    let wrapped = wrap_text_to_width(&before_cursor, width);
-    let row = wrapped.len().saturating_sub(1);
-    let col = wrapped.last().map(|l| l.chars().count()).unwrap_or(0);
-    let (row, col) = if col >= width {
-        (row + 1, 0)
-    } else {
-        (row, col)
-    };
-    if row < input_area.height as usize {
-        frame.set_cursor_position((input_area.x + col as u16, input_area.y + row as u16));
+    if height > 0 {
+        frame.set_cursor_position((
+            input_area.x + cursor_col as u16,
+            input_area.y + (cursor_row - first_row) as u16,
+        ));
     }
+}
+
+/// Split text into rows of at most `width` characters, breaking after the
+/// last space that fits (or mid-word when a word is longer than a row).
+/// Returns each row's character range; every character is in exactly one row.
+fn wrap_ranges(chars: &[char], width: usize) -> Vec<(usize, usize)> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    let mut start = 0;
+    while chars.len() - start > width {
+        let window = &chars[start..start + width];
+        let end = match window.iter().rposition(|&c| c == ' ') {
+            Some(space) if space > 0 => start + space + 1,
+            _ => start + width,
+        };
+        rows.push((start, end));
+        start = end;
+    }
+    rows.push((start, chars.len()));
+    rows
+}
+
+/// Row and column of the cursor (a character index) within `rows`
+fn cursor_row_col(rows: &[(usize, usize)], cursor: usize, width: usize) -> (usize, usize) {
+    let last = rows.len() - 1;
+    for (i, &(start, end)) in rows.iter().enumerate() {
+        if cursor < end || i == last {
+            let col = cursor.saturating_sub(start);
+            // A cursor after a full last row goes to the start of the next line
+            if col >= width {
+                return (i + 1, 0);
+            }
+            return (i, col);
+        }
+    }
+    (last, 0)
 }
 
 fn render_focus_screen(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -1980,4 +2021,52 @@ fn apply_progressive_hiding(text: &str, level: u8) -> String {
     }
 
     result.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cursor_row_col, wrap_ranges};
+
+    fn rows(text: &str, width: usize) -> Vec<String> {
+        let chars: Vec<char> = text.chars().collect();
+        wrap_ranges(&chars, width)
+            .into_iter()
+            .map(|(start, end)| chars[start..end].iter().collect())
+            .collect()
+    }
+
+    #[test]
+    fn test_wrap_breaks_after_spaces_and_keeps_every_character() {
+        assert_eq!(
+            rows("faith hope charity", 10),
+            ["faith ", "hope ", "charity"]
+        );
+        // Repeated and trailing spaces are kept, not collapsed
+        assert_eq!(rows("a  b ", 10), ["a  b "]);
+        assert_eq!(rows("", 10), [""]);
+    }
+
+    #[test]
+    fn test_wrap_breaks_long_words() {
+        assert_eq!(rows("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+        assert_eq!(rows("✎✎✎✎✎", 2), ["✎✎", "✎✎", "✎"]);
+    }
+
+    #[test]
+    fn test_cursor_follows_the_wrapped_rows() {
+        let chars: Vec<char> = "faith hope charity".chars().collect();
+        let wrapped = wrap_ranges(&chars, 10);
+        assert_eq!(cursor_row_col(&wrapped, 0, 10), (0, 0));
+        assert_eq!(cursor_row_col(&wrapped, 5, 10), (0, 5)); // on the space
+        assert_eq!(cursor_row_col(&wrapped, 6, 10), (1, 0)); // start of "hope"
+        assert_eq!(cursor_row_col(&wrapped, 18, 10), (2, 7)); // end of text
+    }
+
+    #[test]
+    fn test_cursor_after_a_full_last_row_moves_to_next_line() {
+        let chars: Vec<char> = "abcd".chars().collect();
+        let wrapped = wrap_ranges(&chars, 4);
+        assert_eq!(cursor_row_col(&wrapped, 4, 4), (1, 0));
+        assert_eq!(cursor_row_col(&wrapped, 3, 4), (0, 3));
+    }
 }
