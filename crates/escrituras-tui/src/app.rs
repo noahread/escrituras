@@ -1,10 +1,10 @@
-use ratatui::layout::Rect;
-use ratatui::widgets::ListState;
-use std::collections::HashSet;
 use escrituras_core::{
     ChatMessage, ClaudeClient, Config, EmbeddingsDb, OllamaClient, OpenAIClient, Provider,
     Scripture, ScriptureDb, ScriptureRange,
 };
+use ratatui::layout::Rect;
+use ratatui::widgets::ListState;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -31,7 +31,7 @@ pub enum MemorizeMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FlashcardPhase {
     #[default]
-    Hidden,   // Shows reference only, prompt to type or reveal
+    Hidden, // Shows reference only, prompt to type or reveal
     Typing,   // User is typing their attempt (editing mode)
     Revealed, // Shows actual text with diff highlighting
 }
@@ -54,7 +54,7 @@ pub enum FocusPane {
     Navigation,
     Content,
     References,
-    Input,  // Query input box (AI mode only)
+    Input, // Query input box (AI mode only)
 }
 
 // ChatMessage and ChatRole are re-exported from escrituras_core
@@ -64,7 +64,7 @@ pub enum SearchFocus {
     #[default]
     Results,
     Preview,
-    Input,  // Search input field
+    Input, // Search input field
 }
 
 /// Direction of last scroll movement (for verse positioning in view)
@@ -135,12 +135,12 @@ pub struct App {
     pub context_visible_height: usize,
 
     // Content state - line-based scrolling
-    pub line_scroll: usize,           // Which line is at top of view (line-based scroll)
-    pub verse_line_offset: usize,     // Sub-verse offset for verses taller than view
+    pub line_scroll: usize, // Which line is at top of view (line-based scroll)
+    pub verse_line_offset: usize, // Sub-verse offset for verses taller than view
     pub last_scroll_direction: ScrollDirection, // For verse positioning (top vs bottom)
-    pub content_height: u16,          // Height of content area in lines
-    pub content_width: usize,         // Width of content area for text wrapping
-    pub total_content_lines: u16,     // Total lines in chapter (for reference)
+    pub content_height: u16, // Height of content area in lines
+    pub content_width: usize, // Width of content area for text wrapping
+    pub total_content_lines: u16, // Total lines in chapter (for reference)
 
     // Search state
     pub search_input: String,
@@ -170,11 +170,11 @@ pub struct App {
 
     // Session context
     pub session_context: Vec<Scripture>,
-    pub context_state: ListState,        // For navigating context list
-    pub show_context_panel: bool,        // Toggle between scripture and context view
+    pub context_state: ListState, // For navigating context list
+    pub show_context_panel: bool, // Toggle between scripture and context view
 
     // Browsed chapters (for AI context, lightweight tracking)
-    pub browsed_chapters: Vec<(String, i32)>,  // (book_title, chapter_number)
+    pub browsed_chapters: Vec<(String, i32)>, // (book_title, chapter_number)
 
     // Animation state
     pub animation_frame: u8, // 0-2 for ellipsis animation
@@ -231,7 +231,9 @@ impl App {
             scripture_db.load_from_json(local_path).await?;
         } else if let Some(ref cfg_path) = config_path {
             if cfg_path.exists() {
-                scripture_db.load_from_json(cfg_path.to_str().unwrap()).await?;
+                scripture_db
+                    .load_from_json(cfg_path.to_str().unwrap())
+                    .await?;
             } else {
                 anyhow::bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
             }
@@ -245,30 +247,33 @@ impl App {
         let config = Config::load().unwrap_or_else(|_| Config::new());
 
         // Load provider from config
-        let current_provider = config.provider
+        let current_provider = config
+            .provider
             .as_ref()
             .and_then(|p| Provider::from_str(p))
             .unwrap_or(Provider::Ollama);
 
         // Initialize API clients - check env vars first, then config
-        let claude_key = std::env::var("ANTHROPIC_API_KEY").ok()
+        let claude_key = std::env::var("ANTHROPIC_API_KEY")
+            .ok()
             .or_else(|| config.claude_api_key.clone());
         let claude_client = claude_key.as_ref().map(|k| ClaudeClient::new(k));
 
-        let openai_key = std::env::var("OPENAI_API_KEY").ok()
+        let openai_key = std::env::var("OPENAI_API_KEY")
+            .ok()
             .or_else(|| config.openai_api_key.clone());
         let openai_client = openai_key.as_ref().map(|k| OpenAIClient::new(k));
 
         // Load default model from config
-        let selected_model = config.default_model
+        let selected_model = config
+            .default_model
             .unwrap_or_else(|| "gemma3:latest".to_string());
 
         // Load embeddings if available (for semantic search)
         // Try local data/ directory first, then ~/.config/escrituras/data/
         let embeddings_db = {
             let local_path = std::path::Path::new("data");
-            let config_path = dirs::config_dir()
-                .map(|p| p.join("escrituras/data"));
+            let config_path = dirs::config_dir().map(|p| p.join("escrituras/data"));
 
             if local_path.join("scripture_embeddings.npy").exists() {
                 EmbeddingsDb::load(local_path).ok()
@@ -310,7 +315,7 @@ impl App {
             verse_line_offset: 0,
             last_scroll_direction: ScrollDirection::Down,
             content_height: 0,
-            content_width: 80,  // Default, updated during render
+            content_width: 80, // Default, updated during render
             total_content_lines: 0,
 
             search_input: String::new(),
@@ -376,15 +381,21 @@ impl App {
 
     // Navigation helpers
     pub fn selected_volume(&self) -> Option<&String> {
-        self.volume_state.selected().and_then(|i| self.cached_volumes.get(i))
+        self.volume_state
+            .selected()
+            .and_then(|i| self.cached_volumes.get(i))
     }
 
     pub fn selected_book(&self) -> Option<&String> {
-        self.book_state.selected().and_then(|i| self.cached_books.get(i))
+        self.book_state
+            .selected()
+            .and_then(|i| self.cached_books.get(i))
     }
 
     pub fn selected_chapter(&self) -> Option<i32> {
-        self.chapter_state.selected().and_then(|i| self.cached_chapters.get(i).copied())
+        self.chapter_state
+            .selected()
+            .and_then(|i| self.cached_chapters.get(i).copied())
     }
 
     /// Adjust a ListState's offset to ensure the selected item is visible
@@ -508,7 +519,8 @@ impl App {
             NavLevel::Chapter => {
                 // For single-book volumes, go back to Volume level (skip Book level)
                 // Use selected_volume() since is_single_book_volume expects a volume name
-                let is_single_book = self.selected_volume()
+                let is_single_book = self
+                    .selected_volume()
                     .map(|v| self.is_single_book_volume(&v))
                     .unwrap_or(false);
 
@@ -580,7 +592,9 @@ impl App {
         self.verse_line_offset = 0;
         self.last_scroll_direction = ScrollDirection::Down;
 
-        if let (Some(book), Some(chapter)) = (self.selected_book().cloned(), self.selected_chapter()) {
+        if let (Some(book), Some(chapter)) =
+            (self.selected_book().cloned(), self.selected_chapter())
+        {
             let verses = self.scripture_db.get_verses_for_chapter(&book, chapter);
             self.cached_verses = verses.into_iter().cloned().collect();
             // Reset selected verse
@@ -591,7 +605,11 @@ impl App {
             };
 
             // Track browsed chapter (lightweight, not individual verses)
-            if !self.browsed_chapters.iter().any(|(b, c)| b == &book && *c == chapter) {
+            if !self
+                .browsed_chapters
+                .iter()
+                .any(|(b, c)| b == &book && *c == chapter)
+            {
                 self.browsed_chapters.push((book, chapter));
             }
 
@@ -619,7 +637,11 @@ impl App {
 
         // Track browsed chapter
         let book_owned = book.to_string();
-        if !self.browsed_chapters.iter().any(|(b, c)| b == &book_owned && *c == chapter) {
+        if !self
+            .browsed_chapters
+            .iter()
+            .any(|(b, c)| b == &book_owned && *c == chapter)
+        {
             self.browsed_chapters.push((book_owned, chapter));
         }
 
@@ -801,8 +823,10 @@ impl App {
             if let Some(ch_idx) = state.chapter_idx {
                 self.chapter_state.select(Some(ch_idx));
                 if let (Some(book), Some(&chapter)) = (
-                    self.book_state.selected().and_then(|i| self.cached_books.get(i)),
-                    self.cached_chapters.get(ch_idx)
+                    self.book_state
+                        .selected()
+                        .and_then(|i| self.cached_books.get(i)),
+                    self.cached_chapters.get(ch_idx),
                 ) {
                     let verses = self.scripture_db.get_verses_for_chapter(book, chapter);
                     self.cached_verses = verses.into_iter().cloned().collect();
@@ -834,14 +858,17 @@ impl App {
                 self.cached_chapters = chapters;
 
                 // Set chapter
-                if let Some(ch_idx) = self.cached_chapters.iter().position(|&c| c == range.chapter_number) {
+                if let Some(ch_idx) = self
+                    .cached_chapters
+                    .iter()
+                    .position(|&c| c == range.chapter_number)
+                {
                     self.chapter_state.select(Some(ch_idx));
 
                     // Load verses
-                    let verses = self.scripture_db.get_verses_for_chapter(
-                        &range.book_title,
-                        range.chapter_number,
-                    );
+                    let verses = self
+                        .scripture_db
+                        .get_verses_for_chapter(&range.book_title, range.chapter_number);
                     self.cached_verses = verses.into_iter().cloned().collect();
 
                     // Store the range for highlighting multiple verses
@@ -908,7 +935,8 @@ impl App {
         let max_idx = self.cached_verses.len() - 1;
 
         // Check if selection is missing or out of bounds
-        let needs_reset = self.selected_verse_idx
+        let needs_reset = self
+            .selected_verse_idx
             .map(|idx| idx > max_idx)
             .unwrap_or(true);
 
@@ -1170,7 +1198,7 @@ impl App {
 
         for msg in &self.chat_messages {
             total_lines += 1; // Role line ("You:" or "AI:")
-            // Calculate wrapped lines for each line of content
+                              // Calculate wrapped lines for each line of content
             for line in msg.content.lines() {
                 // Use character count, not byte length, for proper UTF-8 handling
                 let char_count = line.chars().count();
@@ -1221,14 +1249,16 @@ impl App {
                 if self.session_context.is_empty() {
                     self.context_state.select(None);
                 } else if i >= self.session_context.len() {
-                    self.context_state.select(Some(self.session_context.len() - 1));
+                    self.context_state
+                        .select(Some(self.session_context.len() - 1));
                 }
             }
         }
     }
 
     pub fn get_selected_verse(&self) -> Option<&Scripture> {
-        self.selected_verse_idx.and_then(|idx| self.cached_verses.get(idx))
+        self.selected_verse_idx
+            .and_then(|idx| self.cached_verses.get(idx))
     }
 
     // Model picker methods
@@ -1262,7 +1292,8 @@ impl App {
         let len = providers.len();
         if len > 0 {
             let i = self.provider_picker_state.selected().unwrap_or(0);
-            self.provider_picker_state.select(Some((i + 1).min(len - 1)));
+            self.provider_picker_state
+                .select(Some((i + 1).min(len - 1)));
         }
     }
 
@@ -1321,10 +1352,10 @@ impl App {
         // Get the current verse based on which screen we're on
         let verse = match self.screen {
             Screen::Browse => self.get_selected_verse().cloned(),
-            Screen::Search => {
-                self.search_state.selected()
-                    .and_then(|i| self.search_results.get(i).cloned())
-            }
+            Screen::Search => self
+                .search_state
+                .selected()
+                .and_then(|i| self.search_results.get(i).cloned()),
             Screen::Query => self.get_selected_verse().cloned(),
             Screen::Focus => None, // Already in focus mode
         };
@@ -1338,11 +1369,14 @@ impl App {
             let volume_verses = self.scripture_db.get_all_verses_for_volume(&volume);
 
             // Find current index in the volume
-            let current_index = volume_verses.iter().position(|v| {
-                v.book_title == verse.book_title
-                    && v.chapter_number == verse.chapter_number
-                    && v.verse_number == verse.verse_number
-            }).unwrap_or(0);
+            let current_index = volume_verses
+                .iter()
+                .position(|v| {
+                    v.book_title == verse.book_title
+                        && v.chapter_number == verse.chapter_number
+                        && v.verse_number == verse.verse_number
+                })
+                .unwrap_or(0);
 
             self.focus_state = Some(FocusState {
                 current_verse: verse,

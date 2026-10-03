@@ -1,6 +1,6 @@
+use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, anyhow};
 
 #[derive(Serialize)]
 struct OpenAIMessage {
@@ -52,7 +52,8 @@ impl OpenAIClient {
             }],
         };
 
-        let response = self.client
+        let response = self
+            .client
             .post("https://api.openai.com/v1/chat/completions")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -67,7 +68,9 @@ impl OpenAIClient {
         }
 
         let openai_response: OpenAIResponse = response.json().await?;
-        Ok(openai_response.choices.first()
+        Ok(openai_response
+            .choices
+            .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default())
     }

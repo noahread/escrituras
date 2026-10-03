@@ -186,11 +186,11 @@ fn handle_tool_call(
     db: &ScriptureDb,
     embeddings: &mut Option<EmbeddingsDb>,
 ) -> McpResponse {
-    let tool_name = params
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let arguments = params.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+    let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
 
     match tool_name {
         "lookup_verse" => handle_lookup_verse(id, &arguments, db),
@@ -215,7 +215,11 @@ fn handle_lookup_verse(
     // Parse reference (e.g., "John 3:16" or "1 Nephi 3:7")
     let refs = db.extract_scripture_references(reference);
     if refs.is_empty() {
-        return McpResponse::error(id, -32602, &format!("Could not parse reference: {}", reference));
+        return McpResponse::error(
+            id,
+            -32602,
+            &format!("Could not parse reference: {}", reference),
+        );
     }
 
     let scripture_ref = &refs[0];
@@ -223,7 +227,9 @@ fn handle_lookup_verse(
 
     let matching_verses: Vec<_> = verses
         .into_iter()
-        .filter(|v| v.verse_number >= scripture_ref.start_verse && v.verse_number <= scripture_ref.end_verse)
+        .filter(|v| {
+            v.verse_number >= scripture_ref.start_verse && v.verse_number <= scripture_ref.end_verse
+        })
         .collect();
 
     if matching_verses.is_empty() {
@@ -264,7 +270,11 @@ fn handle_lookup_chapter(
 
     let verses = db.get_verses_for_chapter(book, chapter);
     if verses.is_empty() {
-        return McpResponse::error(id, -32602, &format!("Chapter not found: {} {}", book, chapter));
+        return McpResponse::error(
+            id,
+            -32602,
+            &format!("Chapter not found: {} {}", book, chapter),
+        );
     }
 
     let content = verses
@@ -295,10 +305,7 @@ fn handle_search_scriptures(
         None => return McpResponse::error(id, -32602, "Missing 'query' parameter"),
     };
 
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(10) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10) as usize;
 
     let semantic_limit = (limit / 2).max(5); // Use half for semantic, at least 5
     let mut combined_results: Vec<String> = Vec::new();
@@ -310,7 +317,10 @@ fn handle_search_scriptures(
             for (verse_title, _score) in semantic_matches {
                 if let Some(scripture) = db.get_by_title(&verse_title) {
                     seen_titles.insert(verse_title);
-                    combined_results.push(format!("{} - {}", scripture.verse_title, scripture.scripture_text));
+                    combined_results.push(format!(
+                        "{} - {}",
+                        scripture.verse_title, scripture.scripture_text
+                    ));
                 }
             }
         }
@@ -321,7 +331,10 @@ fn handle_search_scriptures(
     for scripture in keyword_results {
         if !seen_titles.contains(&scripture.verse_title) {
             seen_titles.insert(scripture.verse_title.clone());
-            combined_results.push(format!("{} - {}", scripture.verse_title, scripture.scripture_text));
+            combined_results.push(format!(
+                "{} - {}",
+                scripture.verse_title, scripture.scripture_text
+            ));
             if combined_results.len() >= limit {
                 break;
             }
@@ -369,7 +382,11 @@ fn handle_get_context(
     // Parse reference
     let refs = db.extract_scripture_references(reference);
     if refs.is_empty() {
-        return McpResponse::error(id, -32602, &format!("Could not parse reference: {}", reference));
+        return McpResponse::error(
+            id,
+            -32602,
+            &format!("Could not parse reference: {}", reference),
+        );
     }
 
     let scripture_ref = &refs[0];
@@ -461,10 +478,7 @@ fn handle_list_books(
     )
 }
 
-pub fn run_mcp_server(
-    db: ScriptureDb,
-    mut embeddings: Option<EmbeddingsDb>,
-) {
+pub fn run_mcp_server(db: ScriptureDb, mut embeddings: Option<EmbeddingsDb>) {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
@@ -495,7 +509,11 @@ pub fn run_mcp_server(
             "notifications/initialized" => continue, // Notification, no response
             "tools/list" => handle_tools_list(request.id),
             "tools/call" => handle_tool_call(request.id, &request.params, &db, &mut embeddings),
-            _ => McpResponse::error(request.id, -32601, &format!("Method not found: {}", request.method)),
+            _ => McpResponse::error(
+                request.id,
+                -32601,
+                &format!("Method not found: {}", request.method),
+            ),
         };
 
         let mut stdout = stdout.lock();

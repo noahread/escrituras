@@ -130,10 +130,13 @@ fn semantic_search(
     Ok(results
         .into_iter()
         .filter_map(|(verse_title, score)| {
-            state.scripture_db.get_by_title(&verse_title).map(|s| SearchResult {
-                verse: ScriptureResult::from(s),
-                score: Some(score),
-            })
+            state
+                .scripture_db
+                .get_by_title(&verse_title)
+                .map(|s| SearchResult {
+                    verse: ScriptureResult::from(s),
+                    score: Some(score),
+                })
         })
         .collect())
 }

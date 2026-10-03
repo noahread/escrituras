@@ -1,9 +1,14 @@
+use crate::app::{
+    App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection,
+    SearchFocus,
+};
+use crate::tui::AppEvent;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use escrituras_core::{
+    ChatMessage, ChatRole, ClaudeClient, Config, OpenAIClient, Provider, Scripture,
+};
 use ratatui::layout::Rect;
-use crate::app::{App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection, SearchFocus};
-use crate::tui::AppEvent;
-use escrituras_core::{ChatMessage, ChatRole, ClaudeClient, Config, OpenAIClient, Provider, Scripture};
 
 /// Convert a character index to a byte index for UTF-8 safe string operations
 fn char_to_byte_index(s: &str, char_idx: usize) -> usize {
@@ -120,7 +125,9 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                     app.ensure_verse_selected();
                     FocusPane::Content
                 }
-                FocusPane::Content | FocusPane::References | FocusPane::Input => FocusPane::Navigation,
+                FocusPane::Content | FocusPane::References | FocusPane::Input => {
+                    FocusPane::Navigation
+                }
             };
         }
 
@@ -144,7 +151,11 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('x') => {
             if app.focus == FocusPane::Content && !app.show_context_panel {
                 if let Some(verse) = app.get_selected_verse().cloned() {
-                    if !app.session_context.iter().any(|v| v.verse_title == verse.verse_title) {
+                    if !app
+                        .session_context
+                        .iter()
+                        .any(|v| v.verse_title == verse.verse_title)
+                    {
                         app.session_context.push(verse);
                     }
                 }
@@ -153,7 +164,10 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         // Toggle saved scriptures panel
         KeyCode::Char('X') => {
             app.show_context_panel = !app.show_context_panel;
-            if app.show_context_panel && app.context_state.selected().is_none() && !app.session_context.is_empty() {
+            if app.show_context_panel
+                && app.context_state.selected().is_none()
+                && !app.session_context.is_empty()
+            {
                 app.context_state.select(Some(0));
             }
         }
@@ -207,7 +221,8 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
             app.search_focus = match app.search_focus {
                 SearchFocus::Results => {
                     // When entering saved scriptures panel, select first item
-                    if app.show_context_panel && app.context_state.selected().is_none()
+                    if app.show_context_panel
+                        && app.context_state.selected().is_none()
                         && !app.session_context.is_empty()
                     {
                         app.context_state.select(Some(0));
@@ -246,7 +261,8 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
         // Toggle saved scriptures panel
         KeyCode::Char('X') => {
             app.show_context_panel = !app.show_context_panel;
-            if app.show_context_panel && app.context_state.selected().is_none()
+            if app.show_context_panel
+                && app.context_state.selected().is_none()
                 && !app.session_context.is_empty()
             {
                 app.context_state.select(Some(0));
@@ -258,7 +274,11 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
             if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
                 if let Some(i) = app.search_state.selected() {
                     if let Some(scripture) = app.search_results.get(i).cloned() {
-                        if !app.session_context.iter().any(|v| v.verse_title == scripture.verse_title) {
+                        if !app
+                            .session_context
+                            .iter()
+                            .any(|v| v.verse_title == scripture.verse_title)
+                        {
                             app.session_context.push(scripture);
                         }
                     }
@@ -278,7 +298,8 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
             if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
                 if let Some(i) = app.search_state.selected() {
                     if let Some(scripture) = app.search_results.get(i) {
-                        let text = format!("{}\n{}", scripture.verse_title, scripture.scripture_text);
+                        let text =
+                            format!("{}\n{}", scripture.verse_title, scripture.scripture_text);
                         copy_to_clipboard(&text);
                     }
                 }
@@ -412,12 +433,13 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                             let new_model = match provider {
                                 Provider::Ollama => {
                                     // Fetch Ollama models
-                                    app.ollama.list_models().await.ok()
+                                    app.ollama
+                                        .list_models()
+                                        .await
+                                        .ok()
                                         .and_then(|models| models.into_iter().next())
                                 }
-                                _ => {
-                                    app.get_models_for_provider(provider).into_iter().next()
-                                }
+                                _ => app.get_models_for_provider(provider).into_iter().next(),
                             };
                             if let Some(model) = new_model {
                                 app.selected_model = model.clone();
@@ -482,7 +504,8 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                     // Exit editing when leaving input
                     app.input_mode = InputMode::Normal;
                     if app.show_context_panel {
-                        if app.context_state.selected().is_none() && !app.session_context.is_empty() {
+                        if app.context_state.selected().is_none() && !app.session_context.is_empty()
+                        {
                             app.context_state.select(Some(0));
                         }
                     } else {
@@ -513,7 +536,10 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('X') => {
             app.show_context_panel = !app.show_context_panel;
             // When entering context view, select first item if any
-            if app.show_context_panel && app.context_state.selected().is_none() && !app.session_context.is_empty() {
+            if app.show_context_panel
+                && app.context_state.selected().is_none()
+                && !app.session_context.is_empty()
+            {
                 app.context_state.select(Some(0));
             }
         }
@@ -613,7 +639,11 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('x') => {
             if app.focus == FocusPane::Content {
                 if let Some(verse) = app.get_selected_verse().cloned() {
-                    if !app.session_context.iter().any(|v| v.verse_title == verse.verse_title) {
+                    if !app
+                        .session_context
+                        .iter()
+                        .any(|v| v.verse_title == verse.verse_title)
+                    {
                         app.session_context.push(verse);
                     }
                 }
@@ -631,16 +661,15 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('M') => {
             // Fetch available models based on current provider
             let models = match app.current_provider {
-                Provider::Ollama => {
-                    app.ollama.list_models().await.unwrap_or_default()
-                }
+                Provider::Ollama => app.ollama.list_models().await.unwrap_or_default(),
                 Provider::Claude => ClaudeClient::list_models(),
                 Provider::OpenAI => OpenAIClient::list_models(),
             };
             app.available_models = models;
             if !app.available_models.is_empty() {
                 // Select current model if in list, otherwise first
-                let current_idx = app.available_models
+                let current_idx = app
+                    .available_models
                     .iter()
                     .position(|m| m == &app.selected_model)
                     .unwrap_or(0);
@@ -666,17 +695,20 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
 
 fn handle_focus_normal(app: &mut App, key: KeyEvent) {
     // Check if in memorize sub-mode for special handling
-    let in_memorize = app.focus_state
+    let in_memorize = app
+        .focus_state
         .as_ref()
         .map(|s| s.sub_mode == FocusSubMode::Memorize)
         .unwrap_or(false);
 
-    let is_flashcard = app.focus_state
+    let is_flashcard = app
+        .focus_state
         .as_ref()
         .map(|s| s.memorize_mode == MemorizeMode::Flashcard)
         .unwrap_or(false);
 
-    let flashcard_phase = app.focus_state
+    let flashcard_phase = app
+        .focus_state
         .as_ref()
         .map(|s| s.flashcard_phase)
         .unwrap_or(FlashcardPhase::Hidden);
@@ -694,7 +726,10 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
                 if let Some(ref mut state) = app.focus_state {
                     if state.flashcard_input_cursor > 0 {
                         state.flashcard_input_cursor -= 1;
-                        let byte_pos = char_to_byte_index(&state.flashcard_input, state.flashcard_input_cursor);
+                        let byte_pos = char_to_byte_index(
+                            &state.flashcard_input,
+                            state.flashcard_input_cursor,
+                        );
                         state.flashcard_input.remove(byte_pos);
                     }
                 }
@@ -707,12 +742,14 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
             KeyCode::Right => {
                 if let Some(ref mut state) = app.focus_state {
                     let char_count = state.flashcard_input.chars().count();
-                    state.flashcard_input_cursor = (state.flashcard_input_cursor + 1).min(char_count);
+                    state.flashcard_input_cursor =
+                        (state.flashcard_input_cursor + 1).min(char_count);
                 }
             }
             KeyCode::Char(c) => {
                 if let Some(ref mut state) = app.focus_state {
-                    let byte_pos = char_to_byte_index(&state.flashcard_input, state.flashcard_input_cursor);
+                    let byte_pos =
+                        char_to_byte_index(&state.flashcard_input, state.flashcard_input_cursor);
                     state.flashcard_input.insert(byte_pos, c);
                     state.flashcard_input_cursor += 1;
                 }
@@ -747,7 +784,11 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
         // Save to context
         KeyCode::Char('x') => {
             if let Some(verse) = app.get_focus_verse().cloned() {
-                if !app.session_context.iter().any(|v| v.verse_title == verse.verse_title) {
+                if !app
+                    .session_context
+                    .iter()
+                    .any(|v| v.verse_title == verse.verse_title)
+                {
                     app.session_context.push(verse);
                 }
             }
@@ -773,11 +814,15 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
         }
 
         // Flashcard-specific keys
-        KeyCode::Char('t') if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Hidden => {
+        KeyCode::Char('t')
+            if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Hidden =>
+        {
             // Start typing mode
             app.focus_start_typing();
         }
-        KeyCode::Char('r') if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Revealed => {
+        KeyCode::Char('r')
+            if in_memorize && is_flashcard && flashcard_phase == FlashcardPhase::Revealed =>
+        {
             // Reset flashcard to hidden
             app.focus_reset_flashcard();
         }
@@ -817,12 +862,12 @@ async fn handle_search_editing(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
-            app.search_focus = SearchFocus::Results;  // Return focus to results
+            app.search_focus = SearchFocus::Results; // Return focus to results
         }
         KeyCode::Enter => {
             app.perform_search();
             app.input_mode = InputMode::Normal;
-            app.search_focus = SearchFocus::Results;  // Return focus to results after search
+            app.search_focus = SearchFocus::Results; // Return focus to results after search
         }
         KeyCode::Tab => {
             // Tab out of input to cycle to Results
@@ -860,7 +905,10 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                         Some(range.display_title())
                     } else if let Some(first_verse) = app.cached_verses.first() {
                         // User is viewing a chapter
-                        Some(format!("{} {}", first_verse.book_title, first_verse.chapter_number))
+                        Some(format!(
+                            "{} {}",
+                            first_verse.book_title, first_verse.chapter_number
+                        ))
                     } else {
                         None
                     }
@@ -891,33 +939,40 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                 match provider {
                     Provider::Ollama => {
                         let ollama = app.ollama.clone();
-                        app.query_task = Some(tokio::spawn(async move {
-                            ollama.query(&model, &prompt).await
-                        }));
+                        app.query_task =
+                            Some(tokio::spawn(
+                                async move { ollama.query(&model, &prompt).await },
+                            ));
                     }
                     Provider::Claude => {
                         if let Some(client) = app.claude_client.clone() {
-                            app.query_task = Some(tokio::spawn(async move {
-                                client.query(&model, &prompt).await
-                            }));
+                            app.query_task =
+                                Some(tokio::spawn(
+                                    async move { client.query(&model, &prompt).await },
+                                ));
                         } else {
                             app.query_loading = false;
                             app.chat_messages.push(ChatMessage {
                                 role: ChatRole::Assistant,
-                                content: "Error: Claude API key not configured. Press 'P' to set up.".to_string(),
+                                content:
+                                    "Error: Claude API key not configured. Press 'P' to set up."
+                                        .to_string(),
                             });
                         }
                     }
                     Provider::OpenAI => {
                         if let Some(client) = app.openai_client.clone() {
-                            app.query_task = Some(tokio::spawn(async move {
-                                client.query(&model, &prompt).await
-                            }));
+                            app.query_task =
+                                Some(tokio::spawn(
+                                    async move { client.query(&model, &prompt).await },
+                                ));
                         } else {
                             app.query_loading = false;
                             app.chat_messages.push(ChatMessage {
                                 role: ChatRole::Assistant,
-                                content: "Error: OpenAI API key not configured. Press 'P' to set up.".to_string(),
+                                content:
+                                    "Error: OpenAI API key not configured. Press 'P' to set up."
+                                        .to_string(),
                             });
                         }
                     }
@@ -971,7 +1026,9 @@ fn build_query_prompt(
 
     prompt.push_str("You are helping with LDS (Latter-day Saint) scripture study. ");
     prompt.push_str("When answering, prioritize the Book of Mormon, Doctrine and Covenants, ");
-    prompt.push_str("and Pearl of Great Price alongside the Bible. Include specific verse citations.\n\n");
+    prompt.push_str(
+        "and Pearl of Great Price alongside the Bible. Include specific verse citations.\n\n",
+    );
 
     // Include what the user is currently reading
     if let Some(reading) = current_reading {
@@ -981,8 +1038,9 @@ fn build_query_prompt(
     // Include recently browsed chapters (lightweight context)
     if !browsed_chapters.is_empty() {
         prompt.push_str("Recently viewed chapters: ");
-        let chapters: Vec<String> = browsed_chapters.iter()
-            .take(10)  // Limit to last 10 chapters
+        let chapters: Vec<String> = browsed_chapters
+            .iter()
+            .take(10) // Limit to last 10 chapters
             .map(|(book, ch)| format!("{} {}", book, ch))
             .collect();
         prompt.push_str(&chapters.join(", "));
@@ -992,7 +1050,10 @@ fn build_query_prompt(
     if !context.is_empty() {
         prompt.push_str("Scripture Context:\n");
         for verse in context.iter().take(20) {
-            prompt.push_str(&format!("{}: {}\n", verse.verse_title, verse.scripture_text));
+            prompt.push_str(&format!(
+                "{}: {}\n",
+                verse.verse_title, verse.scripture_text
+            ));
         }
         prompt.push('\n');
     }
@@ -1000,7 +1061,10 @@ fn build_query_prompt(
     // Include chat history for context
     if chat_history.len() > 1 {
         prompt.push_str("Conversation so far:\n");
-        for msg in chat_history.iter().take(chat_history.len().saturating_sub(1)) {
+        for msg in chat_history
+            .iter()
+            .take(chat_history.len().saturating_sub(1))
+        {
             match msg.role {
                 ChatRole::User => prompt.push_str(&format!("User: {}\n", msg.content)),
                 ChatRole::Assistant => prompt.push_str(&format!("Assistant: {}\n", msg.content)),
@@ -1030,9 +1094,18 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
     let y = mouse.row;
 
     // Determine which area the mouse is in (position-based scrolling)
-    let in_nav = app.nav_area.map(|r| point_in_rect(x, y, r)).unwrap_or(false);
-    let in_content = app.content_area.map(|r| point_in_rect(x, y, r)).unwrap_or(false);
-    let in_refs = app.refs_area.map(|r| point_in_rect(x, y, r)).unwrap_or(false);
+    let in_nav = app
+        .nav_area
+        .map(|r| point_in_rect(x, y, r))
+        .unwrap_or(false);
+    let in_content = app
+        .content_area
+        .map(|r| point_in_rect(x, y, r))
+        .unwrap_or(false);
+    let in_refs = app
+        .refs_area
+        .map(|r| point_in_rect(x, y, r))
+        .unwrap_or(false);
 
     match mouse.kind {
         MouseEventKind::ScrollDown => {
@@ -1102,13 +1175,10 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
 }
 
 fn copy_to_clipboard(text: &str) {
-    use std::process::{Command, Stdio};
     use std::io::Write;
+    use std::process::{Command, Stdio};
 
-    if let Ok(mut child) = Command::new("pbcopy")
-        .stdin(Stdio::piped())
-        .spawn()
-    {
+    if let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(text.as_bytes());
         }
@@ -1163,10 +1233,10 @@ mod tests {
     fn test_char_to_byte_index_mixed_utf8() {
         // Mix of different byte-lengths
         let s = "hé中🙏x";
-        assert_eq!(char_to_byte_index(s, 0), 0);  // 'h' - 1 byte
-        assert_eq!(char_to_byte_index(s, 1), 1);  // 'é' - 2 bytes
-        assert_eq!(char_to_byte_index(s, 2), 3);  // '中' - 3 bytes
-        assert_eq!(char_to_byte_index(s, 3), 6);  // '🙏' - 4 bytes
+        assert_eq!(char_to_byte_index(s, 0), 0); // 'h' - 1 byte
+        assert_eq!(char_to_byte_index(s, 1), 1); // 'é' - 2 bytes
+        assert_eq!(char_to_byte_index(s, 2), 3); // '中' - 3 bytes
+        assert_eq!(char_to_byte_index(s, 3), 6); // '🙏' - 4 bytes
         assert_eq!(char_to_byte_index(s, 4), 10); // 'x' - 1 byte
     }
 
@@ -1189,9 +1259,9 @@ mod tests {
     fn test_char_to_byte_index_spanish_text() {
         // Common in scripture study app: Spanish characters
         let s = "¿Qué dice?";
-        assert_eq!(char_to_byte_index(s, 0), 0);  // '¿' - 2 bytes
-        assert_eq!(char_to_byte_index(s, 1), 2);  // 'Q' - 1 byte
-        assert_eq!(char_to_byte_index(s, 2), 3);  // 'u' - 1 byte
-        assert_eq!(char_to_byte_index(s, 3), 4);  // 'é' - 2 bytes
+        assert_eq!(char_to_byte_index(s, 0), 0); // '¿' - 2 bytes
+        assert_eq!(char_to_byte_index(s, 1), 2); // 'Q' - 1 byte
+        assert_eq!(char_to_byte_index(s, 2), 3); // 'u' - 1 byte
+        assert_eq!(char_to_byte_index(s, 3), 4); // 'é' - 2 bytes
     }
 }

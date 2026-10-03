@@ -1,7 +1,7 @@
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use anyhow::{Result, anyhow};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
@@ -23,11 +23,11 @@ impl Config {
 
     pub fn load() -> Result<Self> {
         let config_path = Self::get_config_path()?;
-        
+
         if !config_path.exists() {
             return Ok(Self::new());
         }
-        
+
         let config_content = fs::read_to_string(&config_path)?;
         let config: Config = serde_json::from_str(&config_content)?;
         Ok(config)
@@ -35,12 +35,12 @@ impl Config {
 
     pub fn save(&self) -> Result<()> {
         let config_path = Self::get_config_path()?;
-        
+
         // Create config directory if it doesn't exist
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         let config_content = serde_json::to_string_pretty(self)?;
         fs::write(&config_path, config_content)?;
         Ok(())
@@ -53,9 +53,9 @@ impl Config {
     }
 
     fn get_config_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .ok_or_else(|| anyhow!("Could not determine config directory"))?;
-        
+        let config_dir =
+            dirs::config_dir().ok_or_else(|| anyhow!("Could not determine config directory"))?;
+
         Ok(config_dir.join("escrituras").join("config.json"))
     }
 }
