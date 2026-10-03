@@ -126,6 +126,18 @@ impl Assistant {
         }
     }
 
+    /// Clients using exactly these API keys, ignoring environment variables
+    /// and the config file (for apps that store keys themselves)
+    pub fn with_keys(claude_key: Option<&str>, openai_key: Option<&str>) -> Self {
+        Self {
+            ollama: OllamaClient::new(OLLAMA_URL),
+            claude: claude_key.map(ClaudeClient::new),
+            openai: openai_key.map(OpenAIClient::new),
+            claude_key_from_env: false,
+            openai_key_from_env: false,
+        }
+    }
+
     /// Use `key` for `provider` for the rest of this session (Ollama needs no key)
     pub fn set_api_key(&mut self, provider: Provider, key: &str) {
         match provider {
@@ -286,14 +298,7 @@ mod tests {
 
     #[test]
     fn test_key_source_and_set_api_key() {
-        // Built directly so the test doesn't depend on the environment
-        let mut assistant = Assistant {
-            ollama: OllamaClient::new(OLLAMA_URL),
-            claude: None,
-            openai: None,
-            claude_key_from_env: false,
-            openai_key_from_env: false,
-        };
+        let mut assistant = Assistant::with_keys(None, None);
 
         assert_eq!(
             assistant.key_source(Provider::Ollama),
@@ -313,13 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ask_without_key_is_an_error() {
-        let assistant = Assistant {
-            ollama: OllamaClient::new(OLLAMA_URL),
-            claude: None,
-            openai: None,
-            claude_key_from_env: false,
-            openai_key_from_env: false,
-        };
+        let assistant = Assistant::with_keys(None, None);
         let prompt = build_study_prompt(&[message(ChatRole::User, "q")], &StudyContext::default());
         let err = assistant
             .reply(Provider::Claude, "model", &prompt, &mut |_| {})

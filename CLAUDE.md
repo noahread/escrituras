@@ -23,6 +23,10 @@ cargo test -p escrituras-core   # Core library tests only
 cargo test test_name         # Single test
 cargo test -- --nocapture    # With output
 
+# FFI bindings (Linux and macOS)
+cargo test -p escrituras-ffi
+cargo run -p escrituras-ffi --bin uniffi-bindgen -- generate --library target/debug/libescrituras_ffi.so --language swift --out-dir out/
+
 # Release build
 cargo build --release -p escrituras-tui   # Binary at target/release/scriptures
 
@@ -34,7 +38,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run -- --mcp
 
 ### Workspace Structure
 
-The project is organized as a Cargo workspace with three crates:
+The project is organized as a Cargo workspace with four crates:
 
 ```
 crates/
@@ -64,6 +68,11 @@ crates/
 │       ├── handler.rs   # Keyboard/mouse handling
 │       ├── ui.rs        # Ratatui rendering
 │       └── tui.rs       # Terminal setup/teardown
+│
+├── escrituras-ffi/      # UniFFI bindings for native apps (Swift)
+│   └── src/
+│       ├── lib.rs       # Library object, records, ReplyListener callback
+│       └── bin/uniffi-bindgen.rs  # Bindings generator
 │
 └── escrituras-tauri/    # Tauri desktop app (scaffolding)
     └── src/

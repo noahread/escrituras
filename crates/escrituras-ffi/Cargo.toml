@@ -1,0 +1,25 @@
+[package]
+name = "escrituras-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Swift (and other language) bindings for escrituras-core, generated with UniFFI"
+
+[lib]
+# staticlib for the Apple XCFramework, cdylib for generating bindings
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "escrituras_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+escrituras-core = { path = "../escrituras-core" }
+uniffi = { version = "0.32", features = ["cli", "tokio"] }
+tokio = { version = "1.0", features = ["rt-multi-thread"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3.10"

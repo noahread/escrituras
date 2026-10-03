@@ -1,0 +1,5 @@
+[bindings.swift]
+# Name of the C module the generated Swift file imports; the XCFramework's
+# module map must use the same name (see scripts/build-xcframework.sh)
+ffi_module_name = "EscriturasFFI"
+ffi_module_filename = "EscriturasFFI"

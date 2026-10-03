@@ -52,3 +52,11 @@ jobs:
 
       - name: Test
         run: cargo test -p escrituras-core -p escrituras-tui
+
+      # Bindings for the native Apple app; built on Linux too so bindings can
+      # be generated and tested without a Mac
+      - name: Clippy and test FFI bindings
+        if: runner.os != 'Windows'
+        run: |
+          cargo clippy -p escrituras-ffi --all-targets -- -D warnings
+          cargo test -p escrituras-ffi
