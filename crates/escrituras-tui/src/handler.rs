@@ -2,6 +2,7 @@ use crate::app::{
     App, FlashcardPhase, FocusPane, FocusSubMode, InputMode, MemorizeMode, Screen, ScrollDirection,
     SearchFocus,
 };
+use crate::clipboard;
 use crate::tui::AppEvent;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
@@ -147,7 +148,7 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             if app.focus == FocusPane::Content {
                 if let Some(verse) = app.get_selected_verse() {
                     let text = format!("{}\n{}", verse.verse_title, verse.scripture_text);
-                    copy_to_clipboard(&text);
+                    copy_to_clipboard(app, &text);
                 }
             }
         }
@@ -295,7 +296,7 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
                     if let Some(scripture) = app.search_results.get(i) {
                         let text =
                             format!("{}\n{}", scripture.verse_title, scripture.scripture_text);
-                        copy_to_clipboard(&text);
+                        copy_to_clipboard(app, &text);
                     }
                 }
             }
@@ -616,7 +617,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
             if app.focus == FocusPane::Content {
                 if let Some(verse) = app.get_selected_verse() {
                     let text = format!("{}\n{}", verse.verse_title, verse.scripture_text);
-                    copy_to_clipboard(&text);
+                    copy_to_clipboard(app, &text);
                 }
             }
         }
@@ -751,7 +752,7 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('c') => {
             if let Some(verse) = app.get_focus_verse() {
                 let text = format!("{}\n{}", verse.verse_title, verse.scripture_text);
-                copy_to_clipboard(&text);
+                copy_to_clipboard(app, &text);
             }
         }
 
@@ -1091,14 +1092,10 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
     }
 }
 
-fn copy_to_clipboard(text: &str) {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    if let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
+/// Copy text to the clipboard, reporting failure in the footer
+fn copy_to_clipboard(app: &mut App, text: &str) {
+    if let Err(e) = clipboard::copy(text) {
+        app.set_status(format!("Copy failed: {}", e));
     }
 }
 
