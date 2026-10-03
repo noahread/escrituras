@@ -10,7 +10,7 @@
 //! Native tools are skipped inside SSH sessions, where they would set the
 //! remote machine's clipboard instead of the user's.
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::process::{Command, Stdio};
 
 /// Copy `text` to the system clipboard.
@@ -114,10 +114,15 @@ fn utf16le_with_bom(text: &str) -> Vec<u8> {
         .collect()
 }
 
+/// Write the OSC 52 sequence to stderr, the stream the TUI draws on (see
+/// `tui::init`), so it reaches the terminal even if stdout is redirected.
 fn write_osc52(text: &str) -> std::io::Result<()> {
-    let mut stdout = std::io::stdout().lock();
-    stdout.write_all(osc52_sequence(text).as_bytes())?;
-    stdout.flush()
+    let mut stderr = std::io::stderr().lock();
+    if !stderr.is_terminal() {
+        return Err(std::io::Error::other("stderr is not a terminal"));
+    }
+    stderr.write_all(osc52_sequence(text).as_bytes())?;
+    stderr.flush()
 }
 
 fn osc52_sequence(text: &str) -> String {
