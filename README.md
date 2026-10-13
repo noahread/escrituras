@@ -49,6 +49,18 @@ cargo build --release
 cp target/release/scriptures ~/.local/bin/
 ```
 
+### Mac App (preview)
+
+A native macOS app (SwiftUI, macOS 14+) lives in `apple/EscriturasKit`. It shares saved verses, notes and your reading position with the terminal app. To build it on a Mac with Rust and Xcode installed:
+
+```bash
+scripts/build-xcframework.sh --host   # build the Rust library for this Mac
+scripts/build-mac-app.sh              # creates target/Escrituras.app
+open target/Escrituras.app
+```
+
+For development, open `apple/EscriturasKit/Package.swift` in Xcode and run the `Escrituras` scheme.
+
 ## AI Provider Setup
 
 The app supports three AI providers. Configure at least one:

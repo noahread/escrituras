@@ -77,7 +77,15 @@ crates/
 └── escrituras-tauri/    # Tauri desktop app (scaffolding)
     └── src/
         └── main.rs      # Tauri commands wrapping core
+
+apple/EscriturasKit/     # Swift package (macOS 14+), built on macOS only
+├── Sources/EscriturasKit/   # Generated Swift bindings + small extensions
+├── Sources/EscriturasApp/   # SwiftUI app: Model/ (AppModel, ChatModel, settings) and Views/
+├── Sources/Escrituras/      # App entry point
+└── Tests/                   # XCTest for the bindings and the app models
 ```
+
+The Mac app is built with `scripts/build-xcframework.sh` then `scripts/build-mac-app.sh` (CI runs both, plus `swift test`). It must stay a thin front-end: new logic goes in `escrituras-core` and is exposed through `escrituras-ffi`.
 
 ### Execution Modes
 
