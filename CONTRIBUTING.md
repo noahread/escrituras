@@ -120,7 +120,7 @@ curl -sSL .../install.sh | zsh
 - [ ] Bump version in root `Cargo.toml` (`[workspace.package]` section)
 - [ ] Bump any modified skill versions
 - [ ] Verify shell scripts work with both bash and zsh
-- [ ] Run `cargo test` to verify all tests pass
+- [ ] CI is green on the release commit (or run `cargo test -p escrituras-core -p escrituras-tui`; plain `cargo test` only runs the TUI's tests)
 - [ ] Tag release: `git tag v0.X.0 && git push --tags`
 - [ ] GitHub Actions builds and uploads TUI binaries
 - [ ] Users get updates via `install.sh`

@@ -6,9 +6,7 @@ use crate::clipboard;
 use crate::tui::AppEvent;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use escrituras_core::{
-    ChatMessage, ChatRole, ClaudeClient, Config, OpenAIClient, Provider, Scripture,
-};
+use escrituras_core::{build_study_prompt, ChatMessage, ChatRole, Config, Provider, StudyContext};
 use ratatui::layout::Rect;
 
 /// Convert a character index to a byte index for UTF-8 safe string operations
@@ -57,6 +55,11 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<()> {
 }
 
 async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
+    if app.show_note_input {
+        handle_note_input(app, key);
+        return Ok(());
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') => app.should_quit = true,
@@ -149,16 +152,14 @@ async fn handle_browse_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                 }
             }
         }
+        // Add or edit a note on the selected verse
+        KeyCode::Char('n') if app.focus == FocusPane::Content && !app.show_context_panel => {
+            app.start_editing_note();
+        }
         KeyCode::Char('x') => {
             if app.focus == FocusPane::Content && !app.show_context_panel {
                 if let Some(verse) = app.get_selected_verse().cloned() {
-                    if !app
-                        .session_context
-                        .iter()
-                        .any(|v| v.verse_title == verse.verse_title)
-                    {
-                        app.session_context.push(verse);
-                    }
+                    app.save_verse(verse);
                 }
             }
         }
@@ -275,13 +276,7 @@ async fn handle_search_normal(app: &mut App, key: KeyEvent) {
             if app.search_focus == SearchFocus::Preview && !app.show_context_panel {
                 if let Some(i) = app.search_state.selected() {
                     if let Some(scripture) = app.search_results.get(i).cloned() {
-                        if !app
-                            .session_context
-                            .iter()
-                            .any(|v| v.verse_title == scripture.verse_title)
-                        {
-                            app.session_context.push(scripture);
-                        }
+                        app.save_verse(scripture);
                     }
                 }
             }
@@ -353,17 +348,16 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                         match provider {
                             Provider::Claude => {
                                 config.claude_api_key = Some(app.api_key_input.clone());
-                                app.claude_client = Some(ClaudeClient::new(&app.api_key_input));
                             }
                             Provider::OpenAI => {
                                 config.openai_api_key = Some(app.api_key_input.clone());
-                                app.openai_client = Some(OpenAIClient::new(&app.api_key_input));
                             }
                             Provider::Ollama => {}
                         }
+                        app.assistant.set_api_key(provider, &app.api_key_input);
                         config.provider = Some(provider.as_str().to_string());
                         // Set default model for the new provider
-                        let models = app.get_models_for_provider(provider);
+                        let models = app.assistant.list_models(provider).await;
                         if let Some(model) = models.first() {
                             app.selected_model = model.clone();
                             config.default_model = Some(model.clone());
@@ -430,17 +424,8 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
                             config.provider = Some(provider.as_str().to_string());
                             let _ = config.save();
                             // Set model for the new provider
-                            let new_model = match provider {
-                                Provider::Ollama => {
-                                    // Fetch Ollama models
-                                    app.ollama
-                                        .list_models()
-                                        .await
-                                        .ok()
-                                        .and_then(|models| models.into_iter().next())
-                                }
-                                _ => app.get_models_for_provider(provider).into_iter().next(),
-                            };
+                            let new_model =
+                                app.assistant.list_models(provider).await.into_iter().next();
                             if let Some(model) = new_model {
                                 app.selected_model = model.clone();
                                 // Save auto-selected model to config
@@ -639,13 +624,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('x') => {
             if app.focus == FocusPane::Content {
                 if let Some(verse) = app.get_selected_verse().cloned() {
-                    if !app
-                        .session_context
-                        .iter()
-                        .any(|v| v.verse_title == verse.verse_title)
-                    {
-                        app.session_context.push(verse);
-                    }
+                    app.save_verse(verse);
                 }
             }
         }
@@ -660,11 +639,7 @@ async fn handle_query_normal(app: &mut App, key: KeyEvent) -> Result<()> {
         // Open model picker
         KeyCode::Char('M') => {
             // Fetch available models based on current provider
-            let models = match app.current_provider {
-                Provider::Ollama => app.ollama.list_models().await.unwrap_or_default(),
-                Provider::Claude => ClaudeClient::list_models(),
-                Provider::OpenAI => OpenAIClient::list_models(),
-            };
+            let models = app.assistant.list_models(app.current_provider).await;
             app.available_models = models;
             if !app.available_models.is_empty() {
                 // Select current model if in list, otherwise first
@@ -784,13 +759,7 @@ fn handle_focus_normal(app: &mut App, key: KeyEvent) {
         // Save to context
         KeyCode::Char('x') => {
             if let Some(verse) = app.get_focus_verse().cloned() {
-                if !app
-                    .session_context
-                    .iter()
-                    .any(|v| v.verse_title == verse.verse_title)
-                {
-                    app.session_context.push(verse);
-                }
+                app.save_verse(verse);
             }
         }
 
@@ -913,11 +882,13 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                 };
 
                 // Build prompt with chat history, session context, browsed chapters, and current reading
-                let prompt = build_query_prompt(
+                let prompt = build_study_prompt(
                     &app.chat_messages,
-                    &app.session_context,
-                    &app.browsed_chapters,
-                    current_reading.as_deref(),
+                    &StudyContext {
+                        current_reading: current_reading.as_deref(),
+                        browsed_chapters: &app.browsed_chapters,
+                        saved_verses: &app.session_context,
+                    },
                 );
 
                 app.query_input.clear();
@@ -929,49 +900,35 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.scroll_query_to_bottom();
 
                 // Spawn background task to query the AI provider
-                let model = app.selected_model.clone();
                 let provider = app.current_provider;
-
-                match provider {
-                    Provider::Ollama => {
-                        let ollama = app.ollama.clone();
-                        app.query_task =
-                            Some(tokio::spawn(
-                                async move { ollama.query(&model, &prompt).await },
-                            ));
-                    }
-                    Provider::Claude => {
-                        if let Some(client) = app.claude_client.clone() {
-                            app.query_task =
-                                Some(tokio::spawn(
-                                    async move { client.query(&model, &prompt).await },
-                                ));
-                        } else {
-                            app.query_loading = false;
-                            app.chat_messages.push(ChatMessage {
-                                role: ChatRole::Assistant,
-                                content:
-                                    "Error: Claude API key not configured. Press 'P' to set up."
-                                        .to_string(),
-                            });
-                        }
-                    }
-                    Provider::OpenAI => {
-                        if let Some(client) = app.openai_client.clone() {
-                            app.query_task =
-                                Some(tokio::spawn(
-                                    async move { client.query(&model, &prompt).await },
-                                ));
-                        } else {
-                            app.query_loading = false;
-                            app.chat_messages.push(ChatMessage {
-                                role: ChatRole::Assistant,
-                                content:
-                                    "Error: OpenAI API key not configured. Press 'P' to set up."
-                                        .to_string(),
-                            });
-                        }
-                    }
+                if app.assistant.is_configured(provider) {
+                    let assistant = app.assistant.clone();
+                    let model = app.selected_model.clone();
+                    // Pieces of the reply are sent to the UI as they stream in
+                    let (deltas_tx, deltas_rx) = tokio::sync::mpsc::unbounded_channel();
+                    app.query_deltas = Some(deltas_rx);
+                    app.streaming_reply.clear();
+                    app.query_task = Some(tokio::spawn(async move {
+                        assistant
+                            .reply(provider, &model, &prompt, &mut |delta| {
+                                let _ = deltas_tx.send(delta.to_string());
+                            })
+                            .await
+                    }));
+                } else {
+                    let name = match provider {
+                        Provider::Claude => "Claude",
+                        Provider::OpenAI => "OpenAI",
+                        Provider::Ollama => "Ollama",
+                    };
+                    app.query_loading = false;
+                    app.chat_messages.push(ChatMessage {
+                        role: ChatRole::Assistant,
+                        content: format!(
+                            "Error: {} API key not configured. Press 'P' to set up.",
+                            name
+                        ),
+                    });
                 }
             }
         }
@@ -1012,72 +969,37 @@ async fn handle_query_editing(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
-fn build_query_prompt(
-    chat_history: &[ChatMessage],
-    context: &[Scripture],
-    browsed_chapters: &[(String, i32)],
-    current_reading: Option<&str>,
-) -> String {
-    let mut prompt = String::new();
-
-    prompt.push_str("You are helping with LDS (Latter-day Saint) scripture study. ");
-    prompt.push_str("When answering, prioritize the Book of Mormon, Doctrine and Covenants, ");
-    prompt.push_str(
-        "and Pearl of Great Price alongside the Bible. Include specific verse citations.\n\n",
-    );
-
-    // Include what the user is currently reading
-    if let Some(reading) = current_reading {
-        prompt.push_str(&format!("The user is currently reading {}.\n\n", reading));
-    }
-
-    // Include recently browsed chapters (lightweight context)
-    if !browsed_chapters.is_empty() {
-        prompt.push_str("Recently viewed chapters: ");
-        let chapters: Vec<String> = browsed_chapters
-            .iter()
-            .take(10) // Limit to last 10 chapters
-            .map(|(book, ch)| format!("{} {}", book, ch))
-            .collect();
-        prompt.push_str(&chapters.join(", "));
-        prompt.push_str("\n\n");
-    }
-
-    if !context.is_empty() {
-        prompt.push_str("Scripture Context:\n");
-        for verse in context.iter().take(20) {
-            prompt.push_str(&format!(
-                "{}: {}\n",
-                verse.verse_title, verse.scripture_text
-            ));
-        }
-        prompt.push('\n');
-    }
-
-    // Include chat history for context
-    if chat_history.len() > 1 {
-        prompt.push_str("Conversation so far:\n");
-        for msg in chat_history
-            .iter()
-            .take(chat_history.len().saturating_sub(1))
-        {
-            match msg.role {
-                ChatRole::User => prompt.push_str(&format!("User: {}\n", msg.content)),
-                ChatRole::Assistant => prompt.push_str(&format!("Assistant: {}\n", msg.content)),
+/// Keys while the note editor popup is open
+fn handle_note_input(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.cancel_editing_note(),
+        KeyCode::Enter => app.finish_editing_note(),
+        KeyCode::Backspace => {
+            if app.note_cursor > 0 {
+                app.note_cursor -= 1;
+                let byte_pos = char_to_byte_index(&app.note_input, app.note_cursor);
+                app.note_input.remove(byte_pos);
             }
         }
-        prompt.push('\n');
+        KeyCode::Delete => {
+            if app.note_cursor < app.note_input.chars().count() {
+                let byte_pos = char_to_byte_index(&app.note_input, app.note_cursor);
+                app.note_input.remove(byte_pos);
+            }
+        }
+        KeyCode::Left => app.note_cursor = app.note_cursor.saturating_sub(1),
+        KeyCode::Right => {
+            app.note_cursor = (app.note_cursor + 1).min(app.note_input.chars().count());
+        }
+        KeyCode::Home => app.note_cursor = 0,
+        KeyCode::End => app.note_cursor = app.note_input.chars().count(),
+        KeyCode::Char(c) => {
+            let byte_pos = char_to_byte_index(&app.note_input, app.note_cursor);
+            app.note_input.insert(byte_pos, c);
+            app.note_cursor += 1;
+        }
+        _ => {}
     }
-
-    // Add the current question
-    if let Some(last_msg) = chat_history.last() {
-        prompt.push_str("Current question: ");
-        prompt.push_str(&last_msg.content);
-    }
-
-    prompt.push_str("\n\nPlease provide specific scripture references in your answer.");
-
-    prompt
 }
 
 /// Check if a point is within a rectangle

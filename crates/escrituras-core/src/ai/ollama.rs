@@ -1,31 +1,15 @@
+use super::stream::{messages_with_system, LineBuffer, OnDelta};
+use crate::state::ChatMessage;
 use anyhow::{anyhow, Result};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize)]
-struct OllamaRequest {
-    model: String,
-    prompt: String,
-    stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    format: Option<String>,
-}
+use serde::Deserialize;
 
 #[derive(Deserialize)]
-struct OllamaResponse {
-    response: String,
-    #[allow(dead_code)]
-    done: bool,
-}
-
-#[derive(Deserialize)]
-#[allow(dead_code)]
 struct OllamaModel {
     name: String,
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct OllamaModelsResponse {
     models: Vec<OllamaModel>,
 }
@@ -40,55 +24,73 @@ impl OllamaClient {
     pub fn new(base_url: &str) -> Self {
         Self {
             client: Client::new(),
-            base_url: base_url.to_string(),
+            base_url: base_url.trim_end_matches('/').to_string(),
         }
     }
 
-    pub async fn query(&self, model: &str, prompt: &str) -> Result<String> {
-        let url = format!("{}/api/generate", self.base_url);
+    /// Stream a reply to `messages`, calling `on_delta` with each piece of
+    /// text as it arrives. Returns the full reply.
+    pub async fn stream_chat(
+        &self,
+        model: &str,
+        system: &str,
+        messages: &[ChatMessage],
+        on_delta: OnDelta<'_>,
+    ) -> Result<String> {
+        let request = serde_json::json!({
+            "model": model,
+            "messages": messages_with_system(system, messages),
+            "stream": true,
+        });
 
-        let request = OllamaRequest {
-            model: model.to_string(),
-            prompt: prompt.to_string(),
-            stream: false,
-            format: None,
-        };
-
-        let response = self.client.post(&url).json(&request).send().await?;
+        let mut response = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&request)
+            .send()
+            .await?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
             return Err(anyhow!(
-                "Ollama request failed with status: {}. Make sure Ollama is running with: ollama serve", 
-                response.status()
+                "Ollama request failed with status: {} {}. Make sure Ollama is running with: ollama serve",
+                status,
+                text
             ));
         }
 
-        let ollama_response: OllamaResponse = response.json().await?;
-        Ok(ollama_response.response)
-    }
+        // One JSON object per line
+        let mut lines = LineBuffer::default();
+        let mut reply = String::new();
 
-    #[allow(dead_code)]
-    pub async fn query_json(&self, model: &str, prompt: &str) -> Result<String> {
-        let url = format!("{}/api/generate", self.base_url);
-
-        let request = OllamaRequest {
-            model: model.to_string(),
-            prompt: prompt.to_string(),
-            stream: false,
-            format: Some("json".to_string()),
+        let mut handle = |line: String| -> Result<()> {
+            if line.trim().is_empty() {
+                return Ok(());
+            }
+            let event: serde_json::Value = serde_json::from_str(&line)?;
+            if let Some(error) = event["error"].as_str() {
+                return Err(anyhow!("Ollama error: {}", error));
+            }
+            if let Some(text) = event["message"]["content"].as_str() {
+                if !text.is_empty() {
+                    reply.push_str(text);
+                    on_delta(text);
+                }
+            }
+            Ok(())
         };
 
-        let response = self.client.post(&url).json(&request).send().await?;
-
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "Ollama JSON request failed with status: {}. Make sure Ollama is running with: ollama serve", 
-                response.status()
-            ));
+        while let Some(chunk) = response.chunk().await? {
+            for line in lines.push(&chunk) {
+                handle(line)?;
+            }
+        }
+        if let Some(line) = lines.finish() {
+            handle(line)?;
         }
 
-        let ollama_response: OllamaResponse = response.json().await?;
-        Ok(ollama_response.response)
+        Ok(reply)
     }
 
     pub async fn list_models(&self) -> Result<Vec<String>> {
@@ -101,18 +103,10 @@ impl OllamaClient {
         }
 
         let models_response: OllamaModelsResponse = response.json().await?;
-        let model_names: Vec<String> = models_response
+        Ok(models_response
             .models
             .into_iter()
             .map(|model| model.name)
-            .collect();
-
-        Ok(model_names)
-    }
-
-    #[allow(dead_code)]
-    pub async fn has_model(&self, name: &str) -> Result<bool> {
-        let models = self.list_models().await?;
-        Ok(models.iter().any(|m| m == name))
+            .collect())
     }
 }
