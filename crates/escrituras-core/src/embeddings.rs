@@ -6,15 +6,35 @@ use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+/// Where the embedding model (~33MB) is cached: `FASTEMBED_CACHE_DIR` if
+/// set, otherwise `<cache dir>/escrituras/models` (e.g. `~/.cache` on Linux,
+/// `~/Library/Caches` on macOS). fastembed's own default is a folder in the
+/// current directory, which would re-download the model for every directory
+/// the app is started from.
+pub fn model_cache_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("FASTEMBED_CACHE_DIR") {
+        return PathBuf::from(dir);
+    }
+    dirs::cache_dir()
+        .map(|dir| dir.join("escrituras").join("models"))
+        .unwrap_or_else(|| PathBuf::from(".fastembed_cache"))
+}
+
+fn model_options(show_download_progress: bool) -> InitOptions {
+    InitOptions::new(EmbeddingModel::BGESmallENV15)
+        .with_cache_dir(model_cache_dir())
+        .with_show_download_progress(show_download_progress)
+}
 
 /// Download the embedding model for semantic search (called during installation)
 pub fn download_embedding_model() -> Result<()> {
     println!("Downloading embedding model for semantic search...");
 
     // Show progress since we're not in TUI mode
-    let options = InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(true);
+    let options = model_options(true);
 
     TextEmbedding::try_new(options).map_err(|e| anyhow!("Failed to download model: {}", e))?;
 
@@ -92,10 +112,9 @@ impl EmbeddingsDb {
             .map_err(|_| anyhow!("Embedding model lock poisoned"))?;
 
         if model.is_none() {
-            // Model will be downloaded to ~/.cache/fastembed/ on first use (~33MB)
-            // Disable download progress to avoid corrupting TUI display
-            let options =
-                InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(false);
+            // Downloaded to model_cache_dir() on first use (~33MB). Progress
+            // output is off so it doesn't corrupt the TUI display.
+            let options = model_options(false);
             *model = Some(
                 TextEmbedding::try_new(options)
                     .map_err(|e| anyhow!("Failed to load embedding model: {}", e))?,

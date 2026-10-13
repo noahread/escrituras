@@ -14,7 +14,7 @@ pub mod study;
 pub use ai::{ClaudeClient, OllamaClient, OnDelta, OpenAIClient};
 pub use chat::{build_study_prompt, Assistant, KeySource, StudyContext, StudyPrompt};
 pub use config::Config;
-pub use embeddings::{download_embedding_model, EmbeddingsDb};
+pub use embeddings::{download_embedding_model, model_cache_dir, EmbeddingsDb};
 pub use paths::DataPaths;
 pub use provider::Provider;
 pub use scripture::{Scripture, ScriptureDb, ScriptureRange};
