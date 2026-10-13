@@ -81,6 +81,7 @@ public struct EscriturasScene: Scene {
         Window("Escrituras", id: "main") {
             RootView(launcher: launcher)
                 .frame(minWidth: 820, minHeight: 520)
+                .background(FitWindowToScreen())
                 .task { launcher.start() }
         }
         .defaultSize(width: 1180, height: 760)
@@ -123,6 +124,35 @@ struct RootView: View {
             }
         case .ready(let model, let chat):
             ContentView(model: model, chat: chat)
+        }
+    }
+}
+
+/// Shrinks the window to the screen's visible area when it first opens, so the
+/// default size never leaves it partly off a small display
+private struct FitWindowToScreen: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        FittingView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class FittingView: NSView {
+        private var fitted = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard !fitted, let window, let screen = window.screen ?? NSScreen.main else { return }
+            fitted = true
+            let visible = screen.visibleFrame
+            var frame = window.frame
+            frame.size.width = min(frame.width, visible.width)
+            frame.size.height = min(frame.height, visible.height)
+            frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
+            frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
+            if frame != window.frame {
+                window.setFrame(frame, display: true)
+            }
         }
     }
 }
