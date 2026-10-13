@@ -1,7 +1,8 @@
 #!/bin/bash
-# Launch target/Escrituras.app in a few states and print downscaled screenshots
-# into the CI log as base64 (between ===SCREENSHOT name=== and ===END===
-# markers), so the app's appearance can be reviewed from the log.
+# Launch target/Escrituras.app in a few states and describe each screen in the
+# CI log: the window frame and all visible text with positions (via
+# ci-describe-screen.swift), plus a small JPEG thumbnail as base64 between
+# ===SCREENSHOT name=== and ===END=== markers.
 # macOS only; used by the CI workflow after scripts/build-mac-app.sh.
 
 set -u
@@ -18,11 +19,19 @@ shoot() {
   pid=$!
   sleep 10
   screencapture -x "$OUT/$name.png" || echo "screencapture failed for $name"
+
+  echo "===DESCRIPTION $name==="
+  if [ -f "$OUT/$name.png" ]; then
+    # Run while the app is still open so its window can be listed
+    swift "$ROOT/scripts/ci-describe-screen.swift" "$OUT/$name.png"
+  fi
+  echo "===END==="
+
   kill "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null
 
   if [ -f "$OUT/$name.png" ]; then
-    sips -Z 1280 -s format jpeg -s formatOptions 60 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null
+    sips -Z 640 -s format jpeg -s formatOptions 45 "$OUT/$name.png" --out "$OUT/$name.jpg" >/dev/null
     echo "===SCREENSHOT $name==="
     base64 -i "$OUT/$name.jpg" | fold -w 160
     echo "===END==="
