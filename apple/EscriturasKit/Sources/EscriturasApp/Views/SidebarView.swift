@@ -22,7 +22,7 @@ struct SidebarView: View {
             // Keep the selected book visible, e.g. after jumping to a reference
             .task(id: model.selectedBook) {
                 if let book = model.selectedBook {
-                    proxy.scrollTo(book)
+                    proxy.scrollTo(book, anchor: .center)
                 }
             }
         }
@@ -35,10 +35,19 @@ struct ChapterListView: View {
 
     var body: some View {
         if let book = model.selectedBook {
-            List(selection: chapterSelection(book: book)) {
-                ForEach(model.chapters(of: book), id: \.self) { chapter in
-                    Text(model.chapterLabel(book: book, chapter: chapter))
-                        .tag(chapter)
+            ScrollViewReader { proxy in
+                List(selection: chapterSelection(book: book)) {
+                    ForEach(model.chapters(of: book), id: \.self) { chapter in
+                        Text(model.chapterLabel(book: book, chapter: chapter))
+                            .tag(chapter)
+                            .id(chapter)
+                    }
+                }
+                // Keep the open chapter visible, e.g. after jumping to a reference
+                .task(id: model.location) {
+                    if let location = model.location, location.book == book {
+                        proxy.scrollTo(location.chapter, anchor: .center)
+                    }
                 }
             }
         } else {
