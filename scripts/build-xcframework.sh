@@ -29,9 +29,9 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 # Compile Rust and bundled C code (SQLite, crypto, regex) for the oldest
-# macOS the Swift package supports (Package.swift: .macOS(.v13)). Without
+# macOS the Swift package supports (Package.swift: .macOS(.v14)). Without
 # this, C code targets the build machine's macOS and may not run on older ones.
-MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 export MACOSX_DEPLOYMENT_TARGET
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

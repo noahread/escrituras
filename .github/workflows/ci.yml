@@ -79,3 +79,12 @@ jobs:
       - name: Swift tests
         working-directory: apple/EscriturasKit
         run: swift test
+
+      - name: Build Escrituras.app
+        run: scripts/build-mac-app.sh --debug
+
+      # Screenshots are printed into the log (base64) for review. They depend
+      # on the runner's screen-capture access, so they don't fail the build.
+      - name: App screenshots
+        continue-on-error: true
+        run: scripts/ci-app-screenshots.sh
