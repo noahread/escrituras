@@ -159,7 +159,10 @@ struct ChatView: View {
                 }
                 HStack {
                     Text("\(settings.provider.displayName) · \(settings.model)")
-                    Spacer()
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(-1)
+                    Spacer(minLength: 4)
                     if !chat.entries.isEmpty {
                         Button("Clear") { chat.clear() }
                             .buttonStyle(.link)

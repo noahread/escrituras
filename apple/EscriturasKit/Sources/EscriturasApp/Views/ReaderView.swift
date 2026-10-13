@@ -57,17 +57,12 @@ struct ReaderView: View {
                     model.moveSelection(by: -1)
                     return .handled
                 }
-                .onChange(of: model.scrollTarget) {
-                    if let target = model.scrollTarget {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo(target, anchor: .center)
-                        }
-                    }
-                }
-                .onAppear {
-                    if let target = model.scrollTarget {
-                        proxy.scrollTo(target, anchor: .center)
-                    }
+                // Runs on appearance and whenever the target changes. Waiting a
+                // moment lets the lazy stack lay out the verses first.
+                .task(id: model.scrollTarget) {
+                    guard let target = model.scrollTarget else { return }
+                    try? await Task.sleep(for: .milliseconds(50))
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
         } else {

@@ -6,11 +6,34 @@ import SwiftUI
 struct ContentView: View {
     @Bindable var model: AppModel
     let chat: ChatModel
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+
+    /// Below this width, showing the inspector hides the sidebar (as Notes and
+    /// Mail do) so the reader keeps a comfortable width
+    private let roomyWidth: CGFloat = 1240
 
     var body: some View {
-        NavigationSplitView {
+        GeometryReader { geometry in
+            splitView
+                .onChange(of: model.showInspector) {
+                    if model.showInspector && geometry.size.width < roomyWidth {
+                        columnVisibility = .doubleColumn
+                    } else if !model.showInspector {
+                        columnVisibility = .all
+                    }
+                }
+                .onAppear {
+                    if model.showInspector && geometry.size.width < roomyWidth {
+                        columnVisibility = .doubleColumn
+                    }
+                }
+        }
+    }
+
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 300)
         } content: {
             Group {
                 if model.searchText.isEmpty {
@@ -19,7 +42,7 @@ struct ContentView: View {
                     SearchResultsView(model: model)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 240, max: 420)
+            .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 400)
         } detail: {
             ReaderView(model: model, chat: chat)
         }
@@ -29,7 +52,7 @@ struct ContentView: View {
         }
         .inspector(isPresented: $model.showInspector) {
             InspectorView(model: model, chat: chat)
-                .inspectorColumnWidth(min: 260, ideal: 340, max: 520)
+                .inspectorColumnWidth(min: 250, ideal: 300, max: 480)
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {

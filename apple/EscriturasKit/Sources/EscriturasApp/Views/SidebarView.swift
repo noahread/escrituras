@@ -6,17 +6,26 @@ struct SidebarView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        List(selection: $model.selectedBook) {
-            ForEach(model.volumes, id: \.self) { volume in
-                Section(volume) {
-                    ForEach(model.books(in: volume), id: \.self) { book in
-                        Label(book, systemImage: "book.closed")
-                            .tag(book)
+        ScrollViewReader { proxy in
+            List(selection: $model.selectedBook) {
+                ForEach(model.volumes, id: \.self) { volume in
+                    Section(volume) {
+                        ForEach(model.books(in: volume), id: \.self) { book in
+                            Label(book, systemImage: "book.closed")
+                                .tag(book)
+                                .id(book)
+                        }
                     }
                 }
             }
+            .listStyle(.sidebar)
+            // Keep the selected book visible, e.g. after jumping to a reference
+            .task(id: model.selectedBook) {
+                if let book = model.selectedBook {
+                    proxy.scrollTo(book)
+                }
+            }
         }
-        .listStyle(.sidebar)
     }
 }
 
@@ -32,7 +41,6 @@ struct ChapterListView: View {
                         .tag(chapter)
                 }
             }
-            .navigationTitle(book)
         } else {
             ContentUnavailableView("Choose a Book", systemImage: "books.vertical")
         }
@@ -79,7 +87,6 @@ struct SearchResultsView: View {
                 }
             }
         }
-        .navigationTitle("Search")
     }
 
     private var resultSelection: Binding<String?> {
