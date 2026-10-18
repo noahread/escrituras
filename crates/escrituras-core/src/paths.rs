@@ -20,8 +20,9 @@ pub struct DataPaths {
 }
 
 impl DataPaths {
-    /// Look in the current directory (a development checkout) and then in
-    /// the installed location, `<config dir>/escrituras` (see install.sh).
+    /// Look in the current directory (a development checkout), next to the
+    /// executable (an unzipped release) and then in the installed location,
+    /// `<config dir>/escrituras` (see install.sh).
     pub fn discover() -> Result<Self> {
         Self::find_in(&Self::default_roots())
     }
@@ -29,6 +30,12 @@ impl DataPaths {
     /// The roots searched by [`DataPaths::discover`], in order
     pub fn default_roots() -> Vec<PathBuf> {
         let mut roots = vec![PathBuf::from(".")];
+        if let Some(exe_dir) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(PathBuf::from))
+        {
+            roots.push(exe_dir);
+        }
         if let Some(config_dir) = dirs::config_dir() {
             roots.push(config_dir.join("escrituras"));
         }
@@ -44,7 +51,7 @@ impl DataPaths {
             .map(|root| root.join(SCRIPTURES_FILE))
             .find(|path| path.exists())
         else {
-            bail!("Scripture data not found. Run install.sh or place data in lds-scriptures-2020.12.08/");
+            bail!("Scripture data not found. Run install.sh, or keep the lds-scriptures-2020.12.08 folder next to the scriptures program.");
         };
 
         let embeddings_dir = roots
@@ -115,6 +122,19 @@ mod tests {
             paths.embeddings_dir,
             Some(second.path().join(EMBEDDINGS_DIR))
         );
+    }
+
+    #[test]
+    fn test_searches_next_to_the_executable() {
+        // An unpacked release keeps its data beside the program
+        let exe_dir = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let roots = DataPaths::default_roots();
+        assert_eq!(roots.first(), Some(&PathBuf::from(".")));
+        assert_eq!(roots.get(1), Some(&exe_dir));
     }
 
     #[test]

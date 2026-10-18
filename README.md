@@ -36,9 +36,17 @@ This installs the `scriptures` binary to `~/.local/bin`. Make sure it's in your 
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Manual Install
+### Manual Install (including Windows)
 
-Download the latest release from [GitHub Releases](https://github.com/noahread/escrituras/releases) and extract it to a directory in your PATH.
+Download the archive for your system from [GitHub Releases](https://github.com/noahread/escrituras/releases):
+
+| System | Download |
+|--------|----------|
+| Windows | `scriptures-windows-x86_64.zip` |
+| macOS (Apple Silicon / Intel) | `scriptures-macos-aarch64.tar.gz` / `scriptures-macos-x86_64.tar.gz` |
+| Linux (x86_64 / ARM) | `scriptures-linux-x86_64.tar.gz` / `scriptures-linux-aarch64.tar.gz` |
+
+Unpack it anywhere and run `scriptures` (`scriptures.exe` on Windows) from that folder, or add the folder to your PATH. Keep the `lds-scriptures-2020.12.08` and `data` folders next to the program; it finds them there. `SHA256SUMS.txt` on the release page lists checksums for every download.
 
 ### From Source
 
@@ -51,7 +59,9 @@ cp target/release/scriptures ~/.local/bin/
 
 ### Mac App (preview)
 
-A native macOS app (SwiftUI, macOS 14+) lives in `apple/EscriturasKit`. It shares saved verses, notes and your reading position with the terminal app. To build it on a Mac with Rust and Xcode installed:
+A native macOS app (SwiftUI, macOS 14+) lives in `apple/EscriturasKit`. It shares saved verses, notes and your reading position with the terminal app. Releases include it as `Escrituras-<version>.dmg`: open the disk image and drag Escrituras to Applications. If a release wasn't signed with a Developer ID, macOS blocks it the first time; allow it under System Settings → Privacy & Security → Open Anyway.
+
+To build it yourself on a Mac with Rust and Xcode installed:
 
 ```bash
 scripts/build-xcframework.sh --host   # build the Rust library for this Mac

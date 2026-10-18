@@ -29,6 +29,8 @@ cargo run -p escrituras-ffi --bin uniffi-bindgen -- generate --library target/de
 
 # Release build
 cargo build --release -p escrituras-tui   # Binary at target/release/scriptures
+# Releases: pushing a v* tag runs .github/workflows/release.yml (TUI archives for
+# Linux/macOS/Windows via scripts/package-tui.sh, Mac app DMG via scripts/package-mac-app.sh)
 
 # Test MCP server manually
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run -- --mcp
@@ -148,7 +150,8 @@ The server exposes 5 tools via `crates/escrituras-core/src/mcp.rs`:
 
 Scripture data and embeddings are located by `DataPaths::discover()`, which checks:
 1. Local `lds-scriptures-2020.12.08/` and `data/` (development)
-2. `<config dir>/escrituras/` (installed via `install.sh`; `~/.config` on Linux, `~/Library/Application Support` on macOS)
+2. The executable's directory (an unpacked release archive)
+3. `<config dir>/escrituras/` (installed via `install.sh`; `~/.config` on Linux, `~/Library/Application Support` on macOS)
 
 To regenerate embeddings:
 ```bash

@@ -7,6 +7,9 @@
 #   scripts/build-mac-app.sh --debug     # debug build
 #   scripts/build-mac-app.sh --universal # arm64 + x86_64 (needs a universal
 #                                        # XCFramework: build-xcframework.sh without --host)
+#
+# VERSION=1.2.3 sets the app's version (default: the version in Cargo.toml).
+# The app is signed ad hoc; scripts/package-mac-app.sh signs it for distribution.
 
 set -eu
 
@@ -47,7 +50,8 @@ swift build -c "$CONFIG" --product Escrituras $ARCH_FLAGS
 BIN_DIR=$(swift build -c "$CONFIG" --show-bin-path $ARCH_FLAGS)
 cd "$ROOT"
 
-VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+# The release workflow passes the tag's version; otherwise use the crate version
+VERSION=${VERSION:-$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)}
 
 echo "==> Assembling $APP"
 rm -rf "$APP"
