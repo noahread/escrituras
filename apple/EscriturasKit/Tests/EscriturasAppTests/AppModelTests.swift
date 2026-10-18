@@ -139,6 +139,21 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(model.note(for: verse))
     }
 
+    /// Saved verses and notes share one list in the study panel, so their row
+    /// ids must differ even for the same verse, or the rows get mixed up
+    func testSavedAndNotedRowsHaveDistinctIDs() throws {
+        let model = try makeModel()
+        model.show(ChapterRef(book: "Alma", chapter: 32))
+        let verse = try XCTUnwrap(model.verses.first { $0.number == 21 })
+        model.toggleSaved(verse)
+        model.setNote("Faith is hope for things not seen", for: verse)
+
+        let savedIDs = Set(model.savedVerses.map(\.id))
+        let notedIDs = Set(model.notedVerses.map(\.id))
+        XCTAssertTrue(savedIDs.isDisjoint(with: notedIDs))
+        XCTAssertEqual(model.notedVerses.first?.note.body, "Faith is hope for things not seen")
+    }
+
     func testChapterLabelsAndClipboardText() throws {
         let model = try makeModel()
         XCTAssertEqual(model.chapterLabel(book: "Doctrine and Covenants", chapter: 76), "Section 76")

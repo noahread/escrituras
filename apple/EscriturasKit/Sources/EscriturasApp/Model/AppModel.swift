@@ -15,7 +15,8 @@ extension ChapterRef {
 public struct NotedVerse: Identifiable {
     public let verse: Verse
     public let note: VerseNote
-    public var id: String { verse.title }
+    // Distinct from the verse's own id, since saved verses and notes share a list
+    public var id: String { "note:" + verse.title }
 }
 
 /// What the main window shows and everything the user can do to it.

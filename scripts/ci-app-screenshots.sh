@@ -66,4 +66,4 @@ shoot study -Open "Ether 12:27" -ShowInspector YES -InspectorTab study
 shoot note -Open "Alma 32:21" -EditNote YES
 shoot goto -Open "John 3:16" -GoToReference YES
 shoot settings -Open "John 3:16" -OpenSettings YES
-shoot dark -Open "Doctrine and Covenants 4:2" -ShowInspector YES -AppleInterfaceStyle Dark
+shoot dark -Open "Doctrine and Covenants 4:2" -ShowInspector YES -Appearance dark

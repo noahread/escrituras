@@ -12,8 +12,7 @@ struct SettingsView: View {
             AISettingsView(chat: chat)
                 .tabItem { Label("AI", systemImage: "sparkles") }
         }
-        .frame(width: 480)
-        .scenePadding()
+        .frame(width: 520)
     }
 }
 
@@ -32,7 +31,8 @@ struct ReadingSettingsView: View {
             Text("And now as I said concerning faith—faith is not to have a perfect knowledge of things.")
                 .font(.system(size: fontSize, design: .serif))
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
             LabeledContent("Study data") {
                 Text(DataLocation.studyDatabase().path)
                     .textSelection(.enabled)
@@ -40,6 +40,7 @@ struct ReadingSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .formStyle(.grouped)
     }
 }
 
@@ -90,6 +91,7 @@ struct AISettingsView: View {
 
             Toggle("Include saved verses when asking questions", isOn: $includeSavedVerses)
         }
+        .formStyle(.grouped)
         .onAppear(perform: loadModel)
         .onChange(of: providerName) {
             apiKey = ""
