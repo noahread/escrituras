@@ -68,6 +68,13 @@ enum LaunchOptions {
         if let tab = defaults.string(forKey: "InspectorTab").flatMap(AppModel.InspectorTab.init(rawValue:)) {
             model.inspectorTab = tab
         }
+        // Opens the note editor on the verse selected by -Open
+        if defaults.bool(forKey: "EditNote") {
+            model.noteEditorVerse = model.selectedVerseValue
+        }
+        if defaults.bool(forKey: "GoToReference") {
+            model.showGoToReference = true
+        }
     }
 }
 
@@ -124,6 +131,20 @@ struct RootView: View {
             }
         case .ready(let model, let chat):
             ContentView(model: model, chat: chat)
+                .modifier(OpenSettingsAtLaunch())
+        }
+    }
+}
+
+/// `-OpenSettings YES` opens the Settings window once the app is ready
+private struct OpenSettingsAtLaunch: ViewModifier {
+    @Environment(\.openSettings) private var openSettings
+
+    func body(content: Content) -> some View {
+        content.task {
+            if UserDefaults.standard.bool(forKey: "OpenSettings") {
+                openSettings()
+            }
         }
     }
 }
