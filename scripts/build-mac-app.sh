@@ -37,17 +37,26 @@ if [ ! -d "$PACKAGE/EscriturasFFI.xcframework" ]; then
   exit 1
 fi
 
-ARCH_FLAGS=""
-if [ "$UNIVERSAL" = "1" ]; then
-  ARCH_FLAGS="--arch arm64 --arch x86_64"
-fi
-
-echo "==> Building Escrituras ($CONFIG)"
+# Build each architecture on its own and merge them: given several --arch
+# flags at once, SwiftPM switches build systems and fails to link the static
+# library inside the XCFramework.
+mkdir -p "$ROOT/target"
+EXECUTABLE="$ROOT/target/Escrituras-executable"
 cd "$PACKAGE"
-# shellcheck disable=SC2086 # ARCH_FLAGS is empty or a fixed list of flags
-swift build -c "$CONFIG" --product Escrituras $ARCH_FLAGS
-# shellcheck disable=SC2086
-BIN_DIR=$(swift build -c "$CONFIG" --show-bin-path $ARCH_FLAGS)
+if [ "$UNIVERSAL" = "1" ]; then
+  for arch in arm64 x86_64; do
+    echo "==> Building Escrituras ($CONFIG, $arch)"
+    swift build -c "$CONFIG" --product Escrituras --triple "$arch-apple-macosx14.0"
+  done
+  lipo -create \
+    "$(swift build -c "$CONFIG" --show-bin-path --triple arm64-apple-macosx14.0)/Escrituras" \
+    "$(swift build -c "$CONFIG" --show-bin-path --triple x86_64-apple-macosx14.0)/Escrituras" \
+    -output "$EXECUTABLE"
+else
+  echo "==> Building Escrituras ($CONFIG)"
+  swift build -c "$CONFIG" --product Escrituras
+  cp "$(swift build -c "$CONFIG" --show-bin-path)/Escrituras" "$EXECUTABLE"
+fi
 cd "$ROOT"
 
 # The release workflow passes the tag's version; otherwise use the crate version
@@ -56,7 +65,7 @@ VERSION=${VERSION:-$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)}
 echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/lds-scriptures-2020.12.08/json" "$APP/Contents/Resources/data"
-cp "$BIN_DIR/Escrituras" "$APP/Contents/MacOS/Escrituras"
+mv "$EXECUTABLE" "$APP/Contents/MacOS/Escrituras"
 
 # Scripture text and the embeddings used for search by meaning
 cp lds-scriptures-2020.12.08/json/lds-scriptures-json.txt "$APP/Contents/Resources/lds-scriptures-2020.12.08/json/"
