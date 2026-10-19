@@ -1124,7 +1124,7 @@ checksum = "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6"
 
 [[package]]
 name = "escrituras-core"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -1143,7 +1143,7 @@ dependencies = [
 
 [[package]]
 name = "escrituras-ffi"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "escrituras-core",
  "tempfile",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "escrituras-tauri"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "escrituras-core",
@@ -1168,7 +1168,7 @@ dependencies = [
 
 [[package]]
 name = "escrituras-tui"
-version = "0.2.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "crossterm 0.27.0",
