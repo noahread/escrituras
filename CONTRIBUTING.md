@@ -120,7 +120,24 @@ curl -sSL .../install.sh | zsh
 - [ ] Bump version in root `Cargo.toml` (`[workspace.package]` section)
 - [ ] Bump any modified skill versions
 - [ ] Verify shell scripts work with both bash and zsh
-- [ ] Run `cargo test` to verify all tests pass
-- [ ] Tag release: `git tag v0.X.0 && git push --tags`
-- [ ] GitHub Actions builds and uploads TUI binaries
+- [ ] CI is green on the release commit (or run `cargo test -p escrituras-core -p escrituras-tui`; plain `cargo test` only runs the TUI's tests)
+- [ ] Tag release: `git tag v0.X.0 && git push --tags` (a tag like `v0.X.0-beta.1` publishes a prerelease)
+- [ ] The Release workflow builds the terminal app for Linux (x86_64, ARM), macOS (Apple Silicon, Intel) and Windows, plus the Mac app's disk image, and publishes them with checksums and generated release notes
 - [ ] Users get updates via `install.sh`
+
+Pull requests that change the release workflow or the build and packaging scripts (`scripts/build-*.sh`, `scripts/package-*.sh`) run the same builds without publishing.
+
+### Signing the Mac app
+
+Without signing secrets the release still includes the Mac app, signed ad hoc: it works, but macOS blocks it on first open until the user allows it in System Settings. To ship a signed and notarized app, add these repository secrets (Settings → Secrets and variables → Actions). They need an [Apple Developer Program](https://developer.apple.com/programs/) membership.
+
+| Secret | Value |
+|--------|-------|
+| `MACOS_SIGNING_IDENTITY` | The certificate's name, e.g. `Developer ID Application: Jane Doe (TEAMID1234)` |
+| `MACOS_CERTIFICATE` | The Developer ID Application certificate and its private key, exported from Keychain Access as a `.p12` and base64-encoded: `base64 -i certificate.p12 \| pbcopy` |
+| `MACOS_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12` |
+| `APPLE_ID` | The Apple Account email used for notarization |
+| `APPLE_TEAM_ID` | The 10-character team ID from developer.apple.com/account |
+| `APPLE_APP_PASSWORD` | An app-specific password from account.apple.com (Sign-In and Security → App-Specific Passwords) |
+
+`scripts/package-mac-app.sh` reads the same variables, so it can also sign and notarize locally.

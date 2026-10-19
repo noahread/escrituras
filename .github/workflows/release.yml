@@ -1,69 +1,197 @@
 name: Release
 
+# Pushing a version tag (git tag v0.6.0 && git push --tags) builds the
+# terminal app for Linux, macOS and Windows and the Mac app, then publishes
+# them as a GitHub release. Pull requests that change the release build run
+# the builds without publishing, so problems show up before a tag is pushed.
+
 on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/build-mac-app.sh
+      - scripts/build-xcframework.sh
+      - scripts/package-mac-app.sh
+      - scripts/package-tui.sh
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Work out the version
+        run: |
+          CRATE_VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$VERSION" != "$CRATE_VERSION" ]; then
+              echo "::warning::Tag $GITHUB_REF_NAME doesn't match version $CRATE_VERSION in Cargo.toml; the release uses $VERSION"
+            fi
+          else
+            VERSION="$CRATE_VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+  tui:
+    name: Terminal app (${{ matrix.name }})
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            name: scriptures-macos-x86_64
+          # Ubuntu 22.04 links against an older glibc, so the binary runs on more distributions
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: scriptures-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+            name: scriptures-linux-aarch64
           - target: aarch64-apple-darwin
             os: macos-latest
             name: scriptures-macos-aarch64
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            name: scriptures-linux-x86_64
-
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: scriptures-macos-x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: scriptures-windows-x86_64
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
       - name: Build
-        run: cargo build --release -p escrituras-tui --target ${{ matrix.target }}
+        run: cargo build --release --locked -p escrituras-tui --target ${{ matrix.target }}
 
       - name: Package
-        run: |
-          mkdir -p package/data
-          cp target/${{ matrix.target }}/release/scriptures package/
-          cp -r lds-scriptures-2020.12.08 package/
-          cp data/scripture_embeddings.npy data/scripture_metadata.json package/data/
-          cd package && tar -czvf ../${{ matrix.name }}.tar.gz .
+        shell: bash
+        run: scripts/package-tui.sh ${{ matrix.target }} ${{ matrix.name }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Smoke test
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          # The unpacked program should find its data next to itself, from any directory
+          mkdir -p target/smoke && cd target/smoke
+          if [ -f ../dist/${{ matrix.name }}.zip ]; then
+            7z x -y ../dist/${{ matrix.name }}.zip >/dev/null
+            BIN="$(pwd)/scriptures.exe"
+          else
+            tar -xzf ../dist/${{ matrix.name }}.tar.gz
+            BIN="$(pwd)/scriptures"
+          fi
+          cd ..
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lookup_verse","arguments":{"reference":"Moroni 10:4"}}}' \
+            | "$BIN" --mcp > smoke-response.json
+          cat smoke-response.json
+          grep -q "ask God" smoke-response.json
+
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: ${{ matrix.name }}.tar.gz
+          path: target/dist/${{ matrix.name }}.*
+          if-no-files-found: error
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
+  mac-app:
+    name: Mac app
+    needs: version
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          files: |
-            scriptures-macos-x86_64/scriptures-macos-x86_64.tar.gz
-            scriptures-macos-aarch64/scriptures-macos-aarch64.tar.gz
-            scriptures-linux-x86_64/scriptures-linux-x86_64.tar.gz
-          generate_release_notes: true
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-mac-app
+
+      - name: Build universal library and bindings
+        run: scripts/build-xcframework.sh
+
+      - name: Build the app
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: scripts/build-mac-app.sh --universal
+
+      - name: Check the app is universal
+        run: lipo -archs target/Escrituras.app/Contents/MacOS/Escrituras | grep -q 'x86_64 arm64\|arm64 x86_64'
+
+      # Signing and notarization run only when the secrets are configured;
+      # see "Signing the Mac app" in CONTRIBUTING.md. Pull requests from forks
+      # never see the secrets.
+      - name: Sign, package and notarize
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: scripts/package-mac-app.sh ${{ needs.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Escrituras-mac
+          path: target/dist/Escrituras-*.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: [version, tui, mac-app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Tags with a suffix, like v0.6.0-beta.1, are published as prereleases
+          FLAGS=""
+          case "$TAG" in *-*) FLAGS="--prerelease" ;; esac
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Escrituras ${TAG#v}" \
+            --generate-notes \
+            --verify-tag \
+            $FLAGS

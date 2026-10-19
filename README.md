@@ -7,9 +7,11 @@ A terminal user interface (TUI) for scripture study with AI-powered insights. Br
 - **Browse Scriptures**: Navigate by volume, book, and chapter with verse selection
 - **Focus Mode**: Immersive single-verse study with memorization tools
 - **Semantic Search**: Find verses by meaning, not just keywords (plus stemming: faith → faithful)
-- **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama
+- **AI Chat Mode**: Ask questions with scripture context using Claude, OpenAI, or Ollama; answers stream in as they're written
 - **Multi-Provider AI**: Switch between AI providers seamlessly
-- **Saved Scriptures**: Save verses to a list and include them as context for AI questions
+- **Saved Scriptures**: Save verses to a list and include them as context for AI questions (kept between sessions)
+- **Verse Notes**: Write a note on any verse; it's shown under the verse while reading
+- **Resume Reading**: Reopens the chapter you were last reading
 - **Scripture References**: AI responses include clickable scripture references
 - **MCP Server**: Expose scriptures to AI assistants via Model Context Protocol
 
@@ -34,9 +36,17 @@ This installs the `scriptures` binary to `~/.local/bin`. Make sure it's in your 
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Manual Install
+### Manual Install (including Windows)
 
-Download the latest release from [GitHub Releases](https://github.com/noahread/escrituras/releases) and extract it to a directory in your PATH.
+Download the archive for your system from [GitHub Releases](https://github.com/noahread/escrituras/releases):
+
+| System | Download |
+|--------|----------|
+| Windows | `scriptures-windows-x86_64.zip` |
+| macOS (Apple Silicon / Intel) | `scriptures-macos-aarch64.tar.gz` / `scriptures-macos-x86_64.tar.gz` |
+| Linux (x86_64 / ARM) | `scriptures-linux-x86_64.tar.gz` / `scriptures-linux-aarch64.tar.gz` |
+
+Unpack it anywhere and run `scriptures` (`scriptures.exe` on Windows) from that folder, or add the folder to your PATH. Keep the `lds-scriptures-2020.12.08` and `data` folders next to the program; it finds them there. `SHA256SUMS.txt` on the release page lists checksums for every download.
 
 ### From Source
 
@@ -46,6 +56,20 @@ cd escrituras
 cargo build --release
 cp target/release/scriptures ~/.local/bin/
 ```
+
+### Mac App (preview)
+
+A native macOS app (SwiftUI, macOS 14+) lives in `apple/EscriturasKit`. It shares saved verses, notes and your reading position with the terminal app. Releases include it as `Escrituras-<version>.dmg`: open the disk image and drag Escrituras to Applications. If a release wasn't signed with a Developer ID, macOS blocks it the first time; allow it under System Settings → Privacy & Security → Open Anyway.
+
+To build it yourself on a Mac with Rust and Xcode installed:
+
+```bash
+scripts/build-xcframework.sh --host   # build the Rust library for this Mac
+scripts/build-mac-app.sh              # creates target/Escrituras.app
+open target/Escrituras.app
+```
+
+For development, open `apple/EscriturasKit/Package.swift` in Xcode and run the `Escrituras` scheme.
 
 ## AI Provider Setup
 
@@ -100,6 +124,7 @@ scriptures
 | `Enter` | Select / Expand |
 | `Backspace` | Go back |
 | `Tab` | Cycle focus between panels |
+| `n` | Add or edit a note on the selected verse |
 | `q` | Quit |
 
 ### AI Mode
@@ -113,6 +138,8 @@ scriptures
 | `X` | View/manage saved scriptures |
 | `M` | Change AI model |
 | `P` | Change AI provider |
+
+Saved scriptures, notes and your reading position are stored in `study.db` in the config directory (`~/.config/escrituras/` on Linux, `~/Library/Application Support/escrituras/` on macOS).
 
 ### Scripture Selection
 
@@ -169,7 +196,7 @@ Settings are stored in `~/.config/escrituras/config.json`:
 ```json
 {
   "provider": "claude",
-  "default_model": "claude-sonnet-4-20250514",
+  "default_model": "claude-opus-5-5",
   "claude_api_key": "...",
   "openai_api_key": "..."
 }

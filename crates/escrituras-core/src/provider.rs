@@ -28,14 +28,14 @@ impl Provider {
 }
 
 impl std::str::FromStr for Provider {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "ollama" => Ok(Provider::Ollama),
             "claude" => Ok(Provider::Claude),
             "openai" => Ok(Provider::OpenAI),
-            _ => Err(format!("unknown provider: {}", s)),
+            _ => Err(anyhow::anyhow!("Unknown provider: {}", s)),
         }
     }
 }
