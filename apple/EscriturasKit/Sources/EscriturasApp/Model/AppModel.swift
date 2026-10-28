@@ -49,6 +49,8 @@ public final class AppModel {
 
     public var searchText = ""
     public private(set) var searchResults: [SearchResult] = []
+    /// Bumped by Edit > Find; the window then focuses the search field
+    public private(set) var searchFocusRequests = 0
     public private(set) var isSearching = false
     @ObservationIgnored private var searchTask: Task<Void, Never>?
 
@@ -215,11 +217,62 @@ public final class AppModel {
         if let previous = previousChapter { show(previous) }
     }
 
+    /// Open the first chapter of the book chosen in the sidebar, unless one of
+    /// its chapters is already open. Returns false if there's nothing to open.
+    @discardableResult
+    public func openSelectedBook() -> Bool {
+        guard let book = selectedBook else { return false }
+        if location?.book == book { return true }
+        guard let first = chapters(of: book).first else { return false }
+        return show(ChapterRef(book: book, chapter: first))
+    }
+
+    // MARK: - Verse selection
+
     /// Move the verse selection by `offset` within the chapter
     public func moveSelection(by offset: Int) {
-        guard !verses.isEmpty else { return }
-        let current = verses.firstIndex { $0.title == selectedVerse } ?? 0
-        let index = min(max(current + offset, 0), verses.count - 1)
+        guard let current = selectedIndex else { return }
+        select(at: min(max(current + offset, 0), verses.count - 1))
+    }
+
+    /// Select the next verse, going on to the next chapter after the last one
+    public func selectNextVerse() {
+        guard let current = selectedIndex else { return }
+        if current < verses.count - 1 {
+            select(at: current + 1)
+        } else if let next = nextChapter {
+            show(next)
+        }
+    }
+
+    /// Select the previous verse, going back to the end of the previous
+    /// chapter before the first one
+    public func selectPreviousVerse() {
+        guard let current = selectedIndex else { return }
+        if current > 0 {
+            select(at: current - 1)
+        } else if let previous = previousChapter, show(previous) {
+            selectLastVerse()
+        }
+    }
+
+    public func selectFirstVerse() {
+        select(at: 0)
+    }
+
+    public func selectLastVerse() {
+        select(at: verses.count - 1)
+    }
+
+    /// The selected verse's position in the chapter (the first verse when
+    /// nothing is selected), or nil for an empty chapter
+    private var selectedIndex: Int? {
+        guard !verses.isEmpty else { return nil }
+        return verses.firstIndex { $0.title == selectedVerse } ?? 0
+    }
+
+    private func select(at index: Int) {
+        guard verses.indices.contains(index) else { return }
         selectedVerse = verses[index].title
         scrollTarget = verses[index].title
     }
@@ -255,9 +308,34 @@ public final class AppModel {
         }
     }
 
-    /// Wait for the search scheduled by `scheduleSearch` (for tests)
+    /// Wait for the search scheduled by `scheduleSearch`
     func waitForSearch() async {
         await searchTask?.value
+    }
+
+    /// Return in the search field: run the search right away and open the
+    /// first result, unless one of the results is already open
+    public func submitSearch() async {
+        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if isSearching {
+            scheduleSearch(delay: .zero)
+            await waitForSearch()
+        }
+        guard let first = searchResults.first,
+              !searchResults.contains(where: { $0.verse.title == selectedVerse })
+        else { return }
+        show(verse: first.verse)
+    }
+
+    /// Put the keyboard in the search field (⌘F)
+    public func focusSearch() {
+        searchFocusRequests += 1
+    }
+
+    /// Leave search and go back to the chapter list
+    public func clearSearch() {
+        searchText = ""
+        scheduleSearch()
     }
 
     // MARK: - Saved verses and notes

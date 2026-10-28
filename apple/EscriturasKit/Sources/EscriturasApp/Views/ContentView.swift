@@ -7,6 +7,8 @@ struct ContentView: View {
     @Bindable var model: AppModel
     let chat: ChatModel
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @FocusState private var focus: Pane?
+    @State private var columns = ColumnFocus()
 
     /// Below this width, showing the inspector hides the sidebar (as Notes and
     /// Mail do) so the reader keeps a comfortable width
@@ -18,8 +20,6 @@ struct ContentView: View {
                 .onChange(of: model.showInspector) {
                     if model.showInspector && geometry.size.width < roomyWidth {
                         columnVisibility = .doubleColumn
-                    } else if !model.showInspector {
-                        columnVisibility = .all
                     }
                 }
                 .onAppear {
@@ -32,23 +32,42 @@ struct ContentView: View {
 
     private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(model: model)
+            SidebarView(model: model, focus: $focus, columns: columns)
                 .navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 300)
         } content: {
             Group {
                 if model.searchText.isEmpty {
-                    ChapterListView(model: model)
+                    ChapterListView(model: model, focus: $focus, columns: columns)
                 } else {
-                    SearchResultsView(model: model)
+                    SearchResultsView(model: model, focus: $focus, columns: columns)
                 }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 400)
         } detail: {
-            ReaderView(model: model, chat: chat)
+            ReaderView(model: model, chat: chat, focus: $focus)
+        }
+        // Start in the reader, so ↑/↓ move between verses right away
+        .defaultFocus($focus, .reader)
+        .onAppear {
+            let focus = $focus
+            columns.focusReader = { focus.wrappedValue = .reader }
+            columns.readerIsFocused = { focus.wrappedValue == .reader }
+            columns.startWatchingKeys(model: model)
         }
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search the scriptures")
         .onChange(of: model.searchText) {
             model.scheduleSearch()
+        }
+        // As in Mail and Notes: Return opens the first result and moves on to
+        // the results, where ↑/↓ open each one
+        .onSubmit(of: .search) {
+            Task {
+                await model.submitSearch()
+                columns.move(to: .chapters)
+            }
+        }
+        .onChange(of: model.searchFocusRequests) {
+            columns.focusSearchField()
         }
         .inspector(isPresented: $model.showInspector) {
             InspectorView(model: model, chat: chat)
@@ -78,7 +97,7 @@ struct ContentView: View {
                     Button {
                         model.goToPreviousChapter()
                     } label: {
-                        Label("Previous Chapter", systemImage: "arrow.up")
+                        Label("Previous Chapter", systemImage: "chevron.left")
                     }
                     .help("Previous chapter")
                     .disabled(model.previousChapter == nil)
@@ -86,17 +105,16 @@ struct ContentView: View {
                     Button {
                         model.goToNextChapter()
                     } label: {
-                        Label("Next Chapter", systemImage: "arrow.down")
+                        Label("Next Chapter", systemImage: "chevron.right")
                     }
                     .help("Next chapter")
                     .disabled(model.nextChapter == nil)
                 }
 
-                Button {
-                    model.showInspector.toggle()
-                } label: {
-                    Label("Study", systemImage: "sidebar.trailing")
+                Toggle(isOn: $model.showInspector) {
+                    Label("Study Tools", systemImage: "sidebar.trailing")
                 }
+                .toggleStyle(.button)
                 .help(model.showInspector ? "Hide study tools" : "Show saved verses, notes and AI chat")
             }
         }

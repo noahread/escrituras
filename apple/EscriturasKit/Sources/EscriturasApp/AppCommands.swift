@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Menu bar commands. Shortcuts follow common Mac conventions:
 /// ⌘[ / ⌘] for history (Safari, Finder), ⌘L to go to a location (Safari),
-/// ⌘D to bookmark (Safari), ⌥⌘I for the inspector (Pages, Keynote).
+/// ⌘D to bookmark (Safari), ⌥⌘I for the inspector (Pages, Keynote),
+/// ⌘F for the search field (Mail, Notes).
 struct AppCommands: Commands {
     let launcher: AppLauncher
 
@@ -17,6 +18,12 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
             .disabled(model?.selectedVerseValue == nil)
+        }
+
+        CommandGroup(after: .textEditing) {
+            Button("Find…") { model?.focusSearch() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(model == nil)
         }
 
         CommandGroup(after: .sidebar) {

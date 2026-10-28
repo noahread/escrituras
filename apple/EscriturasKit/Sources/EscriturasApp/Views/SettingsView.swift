@@ -21,23 +21,40 @@ struct ReadingSettingsView: View {
 
     var body: some View {
         Form {
-            Slider(value: $fontSize, in: ReaderFont.range, step: 1) {
-                Text("Text size")
-            } minimumValueLabel: {
-                Image(systemName: "textformat.size.smaller")
-            } maximumValueLabel: {
-                Image(systemName: "textformat.size.larger")
+            Section("Text Size") {
+                LabeledContent("Size") {
+                    Text("\(Int(fontSize)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $fontSize, in: ReaderFont.range, step: 1) {
+                    Text("Text size")
+                } minimumValueLabel: {
+                    Image(systemName: "textformat.size.smaller")
+                        .accessibilityHidden(true)
+                } maximumValueLabel: {
+                    Image(systemName: "textformat.size.larger")
+                        .accessibilityHidden(true)
+                }
+                .accessibilityValue("\(Int(fontSize)) points")
+                Button("Use Default Size") { fontSize = ReaderFont.defaultSize }
+                    .disabled(fontSize == ReaderFont.defaultSize)
             }
-            Text("And now as I said concerning faith—faith is not to have a perfect knowledge of things.")
-                .font(.system(size: fontSize, design: .serif))
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-            LabeledContent("Study data") {
-                Text(DataLocation.studyDatabase().path)
-                    .textSelection(.enabled)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+            Section("Preview") {
+                Text("And now as I said concerning faith—faith is not to have a perfect knowledge of things.")
+                    .font(.system(size: fontSize, design: .serif))
+                    .lineSpacing(fontSize * 0.25)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Study Data") {
+                LabeledContent("Location") {
+                    Text(DataLocation.studyDatabase().path)
+                        .textSelection(.enabled)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)

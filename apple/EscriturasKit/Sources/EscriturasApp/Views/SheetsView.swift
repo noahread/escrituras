@@ -6,6 +6,7 @@ struct NoteEditorView: View {
     let model: AppModel
     let verse: Verse
     @State private var text = ""
+    @FocusState private var editorFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -17,6 +18,8 @@ struct NoteEditorView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(4)
             TextEditor(text: $text)
+                .focused($editorFocused)
+                .accessibilityLabel("Note on \(verse.title)")
                 .font(.body)
                 .frame(minHeight: 140)
                 .scrollContentBackground(.hidden)
@@ -42,7 +45,10 @@ struct NoteEditorView: View {
         }
         .padding(20)
         .frame(width: 460)
-        .onAppear { text = model.note(for: verse) ?? "" }
+        .onAppear {
+            text = model.note(for: verse) ?? ""
+            editorFocused = true
+        }
     }
 }
 
@@ -50,6 +56,7 @@ struct NoteEditorView: View {
 struct GoToReferenceView: View {
     let model: AppModel
     @State private var reference = ""
+    @FocusState private var referenceFocused: Bool
     @State private var notFound = false
     @Environment(\.dismiss) private var dismiss
 
@@ -57,12 +64,17 @@ struct GoToReferenceView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Go to Reference")
                 .font(.headline)
-            TextField("e.g. Alma 32:21, Mosiah 4:19-21 or Moroni 10", text: $reference)
+            TextField("Alma 32:21", text: $reference)
+                .accessibilityLabel("Scripture reference")
+                .focused($referenceFocused)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(go)
                 .onChange(of: reference) { notFound = false }
+            Text("Enter a verse, a range such as Mosiah 4:19–21, or a chapter such as Moroni 10.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
             if notFound {
-                Text("“\(reference)” isn't a reference I recognize.")
+                Label("Reference not found. Check the book, chapter, and verse.", systemImage: "exclamationmark.circle")
                     .font(.callout)
                     .foregroundStyle(.red)
             }
@@ -76,7 +88,8 @@ struct GoToReferenceView: View {
             }
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(width: 400)
+        .onAppear { referenceFocused = true }
     }
 
     private func go() {
