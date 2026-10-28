@@ -10,11 +10,16 @@ The native macOS app and the Swift package it's built on (macOS 14+).
 ## The app
 
 - Three columns: volumes and books, chapters (or search results), and the reader
-- Search in the toolbar; ⌘L goes to a reference such as `Alma 32:21`
+- Search in the toolbar (⌘F); Return opens the first result and moves to the
+  results, where ↑/↓ open each one; Escape leaves search. ⌘L goes to a
+  reference such as `Alma 32:21`
 - The inspector (⌥⌘I) holds saved verses, notes, and AI chat
 - Go menu: Back/Forward (⌘[ ⌘]), previous/next chapter (⌥⌘← ⌥⌘→)
-- Verse menu: Save (⌘D), Add Note (⌥⌘N), Copy (⇧⌘C), Ask About This Verse (⇧⌘A);
-  ↑/↓ move between verses
+- Verse menu: Save (⌘D), Add Note (⌥⌘N), Copy (⇧⌘C), Ask About This Verse (⇧⌘A)
+- Keyboard navigation, as in NetNewsWire: ← and → move between the columns
+  (→ or Return in the books opens the book, in the chapters it enters the reader),
+  ↑/↓ move through books, chapters or verses, continuing into the next or
+  previous chapter past the ends of one; Home/End jump to the first/last verse
 - Settings (⌘,): text size, AI provider and model, API keys (stored in the Keychain)
 - Saved verses, notes and the reading position are in
   `~/Library/Application Support/escrituras/study.db`, shared with the terminal app

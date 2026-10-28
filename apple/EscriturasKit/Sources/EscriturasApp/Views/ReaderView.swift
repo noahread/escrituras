@@ -7,7 +7,7 @@ struct ReaderView: View {
     @Bindable var model: AppModel
     let chat: ChatModel
     @AppStorage(SettingsKey.readerFontSize) private var fontSize = ReaderFont.defaultSize
-    @FocusState private var focused: Bool
+    var focus: FocusState<Pane?>.Binding
 
     var body: some View {
         if let location = model.location {
@@ -31,7 +31,7 @@ struct ReaderView: View {
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 model.selectedVerse = verse.title
-                                focused = true
+                                focus.wrappedValue = .reader
                             }
                             .contextMenu {
                                 VerseActions(model: model, chat: chat, verse: verse)
@@ -47,15 +47,33 @@ struct ReaderView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .focusable()
-                .focused($focused)
+                .focused(focus, equals: .reader)
                 .focusEffectDisabled()
+                // ↑/↓ move verse to verse and on into the neighbouring chapters
+                // (ColumnFocus handles ←)
                 .onKeyPress(.downArrow) {
-                    model.moveSelection(by: 1)
+                    model.selectNextVerse()
                     return .handled
                 }
                 .onKeyPress(.upArrow) {
-                    model.moveSelection(by: -1)
+                    model.selectPreviousVerse()
                     return .handled
+                }
+                .onKeyPress(.home) {
+                    model.selectFirstVerse()
+                    return .handled
+                }
+                .onKeyPress(.end) {
+                    model.selectLastVerse()
+                    return .handled
+                }
+                // Nothing has keyboard focus when the window opens; start in the
+                // reader so the arrow keys work right away
+                .task {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    if focus.wrappedValue == nil {
+                        focus.wrappedValue = .reader
+                    }
                 }
                 // Runs on appearance and whenever the target changes. Waiting a
                 // moment lets the lazy stack lay out the verses first.

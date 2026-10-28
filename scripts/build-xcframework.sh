@@ -56,21 +56,21 @@ fi
 
 # Build the static library for each target. `for t in $TARGETS` would not
 # split words in zsh, so iterate over a newline-separated list instead.
-LIBS=""
+# The built libraries are collected in the positional parameters ("$@"),
+# the one list that keeps paths with spaces intact in both bash and zsh.
+set --
 for target in $(echo "$TARGETS" | tr ' ' '\n'); do
   echo "==> Building escrituras-ffi for $target ($PROFILE)"
   rustup target add "$target" >/dev/null
   cargo build -p escrituras-ffi --lib --target "$target" $CARGO_PROFILE_FLAG
-  LIBS="$LIBS $ROOT/target/$target/$PROFILE/libescrituras_ffi.a"
+  set -- "$@" "$ROOT/target/$target/$PROFILE/libescrituras_ffi.a"
 done
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD/headers" "$BUILD/swift"
 
 echo "==> Combining libraries"
-# Command substitution splits into words in both bash and zsh
-# shellcheck disable=SC2046
-lipo -create $(echo "$LIBS") -output "$BUILD/libescrituras_ffi.a"
+lipo -create "$@" -output "$BUILD/libescrituras_ffi.a"
 
 echo "==> Generating Swift bindings"
 FIRST_TARGET=$(echo "$TARGETS" | cut -d' ' -f1)
