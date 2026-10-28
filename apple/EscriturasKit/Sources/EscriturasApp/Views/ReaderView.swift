@@ -10,99 +10,104 @@ struct ReaderView: View {
     var focus: FocusState<Pane?>.Binding
 
     var body: some View {
-        if let location = model.location {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: fontSize * 0.75) {
-                        Text(location.title)
-                            .font(.system(size: fontSize * 1.8, weight: .semibold, design: .serif))
-                            .accessibilityAddTraits(.isHeader)
-                            .padding(.bottom, fontSize * 0.5)
+        Group {
+            if let location = model.location {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: fontSize * 0.75) {
+                            Text(location.title)
+                                .font(.system(size: fontSize * 1.8, weight: .semibold, design: .serif))
+                                .accessibilityAddTraits(.isHeader)
+                                .padding(.bottom, fontSize * 0.5)
 
-                        ForEach(model.verses) { verse in
-                            VerseRow(
-                                verse: verse,
-                                fontSize: fontSize,
-                                isSelected: model.selectedVerse == verse.title,
-                                isHighlighted: model.highlightedVerses?.contains(verse.number) ?? false,
-                                isSaved: model.isSaved(verse),
-                                note: model.note(for: verse)
-                            )
-                            .accessibilityAction(named: "Select Verse") {
-                                model.selectedVerse = verse.title
-                                focus.wrappedValue = .reader
+                            ForEach(model.verses) { verse in
+                                VerseRow(
+                                    verse: verse,
+                                    fontSize: fontSize,
+                                    isSelected: model.selectedVerse == verse.title,
+                                    isHighlighted: model.highlightedVerses?.contains(verse.number) ?? false,
+                                    isSaved: model.isSaved(verse),
+                                    note: model.note(for: verse)
+                                )
+                                .accessibilityAction(named: "Select Verse") {
+                                    model.selectedVerse = verse.title
+                                    focus.wrappedValue = .reader
+                                }
+                                .accessibilityAction(named: model.isSaved(verse) ? "Remove from Saved Verses" : "Save Verse") {
+                                    model.toggleSaved(verse)
+                                }
+                                .accessibilityAction(named: "Edit Note") {
+                                    model.noteEditorVerse = verse
+                                }
+                                .id(verse.title)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    model.selectedVerse = verse.title
+                                    focus.wrappedValue = .reader
+                                }
+                                .contextMenu {
+                                    VerseActions(model: model, chat: chat, verse: verse)
+                                }
                             }
-                            .accessibilityAction(named: model.isSaved(verse) ? "Remove from Saved Verses" : "Save Verse") {
-                                model.toggleSaved(verse)
-                            }
-                            .accessibilityAction(named: "Edit Note") {
-                                model.noteEditorVerse = verse
-                            }
-                            .id(verse.title)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                model.selectedVerse = verse.title
-                                focus.wrappedValue = .reader
-                            }
-                            .contextMenu {
-                                VerseActions(model: model, chat: chat, verse: verse)
-                            }
+
+                            ChapterFooter(model: model)
+                                .padding(.top, fontSize)
                         }
-
-                        ChapterFooter(model: model)
-                            .padding(.top, fontSize)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: 760, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 24)
-                    .frame(maxWidth: 760, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                }
-                .focusable()
-                .focused(focus, equals: .reader)
-                // The reader has focus when the window opens; a ring around
-                // the whole column would be noise (Mail doesn't ring its message)
-                .focusEffectDisabled()
-                // ↑/↓ move verse to verse and on into the neighbouring chapters
-                // (ColumnFocus handles ←)
-                .onKeyPress(.downArrow) {
-                    model.selectNextVerse()
-                    return .handled
-                }
-                .onKeyPress(.upArrow) {
-                    model.selectPreviousVerse()
-                    return .handled
-                }
-                .onKeyPress(.home) {
-                    model.selectFirstVerse()
-                    return .handled
-                }
-                .onKeyPress(.end) {
-                    model.selectLastVerse()
-                    return .handled
-                }
-                // Nothing has keyboard focus when the window opens; start in the
-                // reader so the arrow keys work right away
-                .task {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    if focus.wrappedValue == nil {
-                        focus.wrappedValue = .reader
+                    .focusable()
+                    .focused(focus, equals: .reader)
+                    // The reader has focus when the window opens; a ring around
+                    // the whole column would be noise (Mail doesn't ring its message)
+                    .focusEffectDisabled()
+                    // ↑/↓ move verse to verse and on into the neighbouring chapters
+                    // (ColumnFocus handles ←)
+                    .onKeyPress(.downArrow) {
+                        model.selectNextVerse()
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
+                        model.selectPreviousVerse()
+                        return .handled
+                    }
+                    .onKeyPress(.home) {
+                        model.selectFirstVerse()
+                        return .handled
+                    }
+                    .onKeyPress(.end) {
+                        model.selectLastVerse()
+                        return .handled
+                    }
+                    // Nothing has keyboard focus when the window opens; start in the
+                    // reader so the arrow keys work right away
+                    .task {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if focus.wrappedValue == nil {
+                            focus.wrappedValue = .reader
+                        }
+                    }
+                    // Runs on appearance and whenever the target changes. Waiting a
+                    // moment lets the lazy stack lay out the verses first.
+                    .task(id: model.scrollTarget) {
+                        guard let target = model.scrollTarget else { return }
+                        do {
+                            try await Task.sleep(for: .milliseconds(50))
+                        } catch {
+                            return
+                        }
+                        proxy.scrollTo(target, anchor: .center)
                     }
                 }
-                // Runs on appearance and whenever the target changes. Waiting a
-                // moment lets the lazy stack lay out the verses first.
-                .task(id: model.scrollTarget) {
-                    guard let target = model.scrollTarget else { return }
-                    do {
-                        try await Task.sleep(for: .milliseconds(50))
-                    } catch {
-                        return
-                    }
-                    proxy.scrollTo(target, anchor: .center)
-                }
+            } else {
+                ContentUnavailableView("Choose a Chapter", systemImage: "book", description: Text("Select a book and chapter in the sidebar to start reading."))
             }
-        } else {
-            ContentUnavailableView("Choose a Chapter", systemImage: "book", description: Text("Select a book and chapter in the sidebar to start reading."))
         }
+        // Mail and Notes draw their reading pane on the text background (white
+        // in light mode) rather than the window's grey; only the sidebar is tinted
+        .background(Color(nsColor: .textBackgroundColor))
     }
 }
 
