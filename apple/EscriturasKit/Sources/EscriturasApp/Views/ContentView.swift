@@ -46,6 +46,9 @@ struct ContentView: View {
         } detail: {
             ReaderView(model: model, chat: chat, focus: $focus)
         }
+        // Like Safari and Mail: the sidebar is tinted the full height of the
+        // window and the toolbar over the other columns takes their background
+        .toolbarBackground(.hidden, for: .windowToolbar)
         // Start in the reader, so ↑/↓ move between verses right away
         .defaultFocus($focus, .reader)
         .onAppear {
