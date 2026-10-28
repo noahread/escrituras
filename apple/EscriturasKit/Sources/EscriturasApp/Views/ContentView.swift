@@ -20,8 +20,6 @@ struct ContentView: View {
                 .onChange(of: model.showInspector) {
                     if model.showInspector && geometry.size.width < roomyWidth {
                         columnVisibility = .doubleColumn
-                    } else if !model.showInspector {
-                        columnVisibility = .all
                     }
                 }
                 .onAppear {
@@ -99,7 +97,7 @@ struct ContentView: View {
                     Button {
                         model.goToPreviousChapter()
                     } label: {
-                        Label("Previous Chapter", systemImage: "arrow.up")
+                        Label("Previous Chapter", systemImage: "chevron.left")
                     }
                     .help("Previous chapter")
                     .disabled(model.previousChapter == nil)
@@ -107,17 +105,16 @@ struct ContentView: View {
                     Button {
                         model.goToNextChapter()
                     } label: {
-                        Label("Next Chapter", systemImage: "arrow.down")
+                        Label("Next Chapter", systemImage: "chevron.right")
                     }
                     .help("Next chapter")
                     .disabled(model.nextChapter == nil)
                 }
 
-                Button {
-                    model.showInspector.toggle()
-                } label: {
-                    Label("Study", systemImage: "sidebar.trailing")
+                Toggle(isOn: $model.showInspector) {
+                    Label("Study Tools", systemImage: "sidebar.trailing")
                 }
+                .toggleStyle(.button)
                 .help(model.showInspector ? "Hide study tools" : "Show saved verses, notes and AI chat")
             }
         }

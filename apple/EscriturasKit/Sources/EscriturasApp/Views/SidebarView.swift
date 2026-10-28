@@ -57,7 +57,7 @@ struct ChapterListView: View {
                 }
             }
         } else {
-            ContentUnavailableView("Choose a Book", systemImage: "books.vertical")
+            ContentUnavailableView("Choose a Book", systemImage: "books.vertical", description: Text("Select a book in the sidebar to browse its chapters."))
         }
     }
 

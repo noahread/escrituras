@@ -69,7 +69,7 @@ struct StudyPanelView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button("Edit Note…") { model.noteEditorVerse = item.verse }
-                        Button("Delete Note") { model.setNote("", for: item.verse) }
+                        Button("Delete Note", role: .destructive) { model.setNote("", for: item.verse) }
                     }
                 }
             }
@@ -149,11 +149,12 @@ struct ChatView: View {
                     Button {
                         chat.send(reading: model)
                     } label: {
-                        Image(systemName: "arrow.up.circle.fill")
+                        Label("Send Question", systemImage: "arrow.up.circle.fill")
+                            .labelStyle(.iconOnly)
                             .font(.title2)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(chat.draft.trimmingCharacters(in: .whitespaces).isEmpty || chat.isResponding)
+                    .disabled(chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat.isResponding)
                     .help("Send")
                     .keyboardShortcut(.return, modifiers: .command)
                 }
@@ -166,6 +167,8 @@ struct ChatView: View {
                     if !chat.entries.isEmpty {
                         Button("Clear") { chat.clear() }
                             .buttonStyle(.link)
+                            .disabled(chat.isResponding)
+                            .help("Clear conversation")
                     }
                     SettingsLink {
                         Text("Settings…")
