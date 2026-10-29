@@ -59,6 +59,13 @@ else
 fi
 cd "$ROOT"
 
+# SwiftPM stamps the deployment target as the SDK version too, and macOS
+# then treats the app as built before its current design: on macOS 26 and
+# later that means the old toolbar look instead of Liquid Glass. Record the
+# SDK the app was really built with.
+SDK_VERSION=$(xcrun --show-sdk-version)
+vtool -set-build-version macos 14.0 "$SDK_VERSION" -replace -output "$EXECUTABLE" "$EXECUTABLE"
+
 # The release workflow passes the tag's version; otherwise use the crate version
 VERSION=${VERSION:-$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)}
 

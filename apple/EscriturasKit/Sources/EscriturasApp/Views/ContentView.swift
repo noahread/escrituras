@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @FocusState private var focus: Pane?
     @State private var columns = ColumnFocus()
+    @State private var chapterColumnWidth: CGFloat = 0
 
     /// Below this width, showing the inspector hides the sidebar (as Notes and
     /// Mail do) so the reader keeps a comfortable width
@@ -30,6 +31,19 @@ struct ContentView: View {
         }
     }
 
+    /// Before macOS 26 the toolbar is an opaque band over the columns
+    private var legacyToolbar: Bool {
+        if #available(macOS 26, *) { return false }
+        return true
+    }
+
+    /// Room for the title in the chapter column's part of the toolbar. With
+    /// the sidebar hidden, the window controls and sidebar toggle come first.
+    private var titleWidth: CGFloat {
+        let leading: CGFloat = columnVisibility == .all ? 20 : 141
+        return max(60, chapterColumnWidth - leading)
+    }
+
     private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model, focus: $focus, columns: columns)
@@ -42,10 +56,20 @@ struct ContentView: View {
                     SearchResultsView(model: model, focus: $focus, columns: columns)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 400)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 420)
+            .background(GeometryReader { geometry in
+                Color.clear.onChange(of: geometry.size.width, initial: true) {
+                    chapterColumnWidth = geometry.size.width
+                }
+            })
         } detail: {
             ReaderView(model: model, chat: chat, focus: $focus)
         }
+        // As in NetNewsWire, each column runs the full height of the window
+        // and the toolbar sits over it. macOS 26 lays toolbars out that way
+        // itself, with Liquid Glass controls and a blur where content scrolls
+        // under them; earlier systems need the toolbar's background hidden.
+        .toolbarBackground(legacyToolbar ? .hidden : .automatic, for: .windowToolbar)
         // Start in the reader, so ↑/↓ move between verses right away
         .defaultFocus($focus, .reader)
         .onAppear {
@@ -73,43 +97,45 @@ struct ContentView: View {
             InspectorView(model: model, chat: chat)
                 .inspectorColumnWidth(min: 250, ideal: 300, max: 480)
         }
+        // The title sits over the chapter column and, as in NetNewsWire and
+        // Mail, names what that column lists; the reader carries its own
+        // heading. The window's own title would run past the column's edge
+        // when the sidebar is hidden, so a toolbar item that truncates to the
+        // column stands in for it. The blank title stays: it is what keeps
+        // the reader's items at the trailing edge of the toolbar.
+        .navigationTitle("")
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button {
-                    model.goBack()
-                } label: {
-                    Label("Back", systemImage: "chevron.backward")
+            if #available(macOS 26, *) {
+                // A title, not a control: no glass behind it
+                ToolbarItem(placement: .navigation) {
+                    ColumnTitle(title: model.columnTitle, subtitle: model.columnSubtitle, maxWidth: titleWidth)
                 }
-                .help("Go back")
-                .disabled(!model.canGoBack)
-
-                Button {
-                    model.goForward()
-                } label: {
-                    Label("Forward", systemImage: "chevron.forward")
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .navigation) {
+                    ColumnTitle(title: model.columnTitle, subtitle: model.columnSubtitle, maxWidth: titleWidth)
                 }
-                .help("Go forward")
-                .disabled(!model.canGoForward)
             }
-
+        }
+        .toolbar {
+            // Back and Forward, through the reading history, are in the Go menu
+            // (⌘[ and ⌘]); a second pair of arrows here would only confuse
             ToolbarItemGroup(placement: .primaryAction) {
-                ControlGroup {
-                    Button {
-                        model.goToPreviousChapter()
-                    } label: {
-                        Label("Previous Chapter", systemImage: "chevron.left")
-                    }
-                    .help("Previous chapter")
-                    .disabled(model.previousChapter == nil)
-
-                    Button {
-                        model.goToNextChapter()
-                    } label: {
-                        Label("Next Chapter", systemImage: "chevron.right")
-                    }
-                    .help("Next chapter")
-                    .disabled(model.nextChapter == nil)
+                Button {
+                    model.goToPreviousChapter()
+                } label: {
+                    Label("Previous Chapter", systemImage: "chevron.left")
                 }
+                .help("Previous chapter")
+                .disabled(model.previousChapter == nil)
+
+                Button {
+                    model.goToNextChapter()
+                } label: {
+                    Label("Next Chapter", systemImage: "chevron.right")
+                }
+                .help("Next chapter")
+                .disabled(model.nextChapter == nil)
 
                 Toggle(isOn: $model.showInspector) {
                     Label("Study Tools", systemImage: "sidebar.trailing")
@@ -118,8 +144,6 @@ struct ContentView: View {
                 .help(model.showInspector ? "Hide study tools" : "Show saved verses, notes and AI chat")
             }
         }
-        .navigationTitle(model.title)
-        .navigationSubtitle(model.volumeOfLocation ?? "")
         .sheet(isPresented: $model.showGoToReference) {
             GoToReferenceView(model: model)
         }
@@ -137,5 +161,29 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+}
+
+/// The chapter column's title and subtitle, truncating when the column is narrow
+struct ColumnTitle: View {
+    let title: String
+    let subtitle: String
+    let maxWidth: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .font(.headline)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: maxWidth, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
