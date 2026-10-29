@@ -104,11 +104,28 @@ public final class AppModel {
         book == "Doctrine and Covenants" ? "Section \(chapter)" : "Chapter \(chapter)"
     }
 
-    /// Window title, e.g. "Alma 32"
+    /// The open chapter, e.g. "Alma 32"
     public var title: String { location?.title ?? "Escrituras" }
 
     public var volumeOfLocation: String? {
         location.flatMap { library.volumeForBook(book: $0.book) }
+    }
+
+    /// Title of the chapter column, as NetNewsWire titles its list: the book
+    /// whose chapters it shows, or the search
+    public var columnTitle: String {
+        if !searchText.isEmpty { return "Results" }
+        return selectedBook ?? "Escrituras"
+    }
+
+    public var columnSubtitle: String {
+        if !searchText.isEmpty {
+            if isSearching { return "Searching…" }
+            return "\(searchResults.count) \(searchResults.count == 1 ? "verse" : "verses")"
+        }
+        guard let book = selectedBook, let volume = library.volumeForBook(book: book),
+              volume != book else { return "" }
+        return volume
     }
 
     /// Open the chapter the user last read, or the first chapter of the Book of Mormon

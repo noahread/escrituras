@@ -232,6 +232,23 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(AppModel.clipboardText(for: verse).hasPrefix("John 3:16\nFor God so loved"))
     }
 
+    func testColumnTitleNamesTheBookOrTheSearch() throws {
+        let model = try makeModel()
+        model.show(ChapterRef(book: "Alma", chapter: 32))
+        XCTAssertEqual(model.columnTitle, "Alma")
+        XCTAssertEqual(model.columnSubtitle, "Book of Mormon")
+
+        // No subtitle when the volume is the book
+        model.show(ChapterRef(book: "Doctrine and Covenants", chapter: 76))
+        XCTAssertEqual(model.columnTitle, "Doctrine and Covenants")
+        XCTAssertEqual(model.columnSubtitle, "")
+
+        model.searchText = "charity never faileth"
+        XCTAssertEqual(model.columnTitle, "Results")
+        model.clearSearch()
+        XCTAssertEqual(model.columnTitle, "Doctrine and Covenants")
+    }
+
     func testBrowsedChaptersAreRecordedOnce() throws {
         let model = try makeModel()
         model.show(ChapterRef(book: "Alma", chapter: 32))
