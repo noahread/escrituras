@@ -31,6 +31,12 @@ struct ContentView: View {
         }
     }
 
+    /// Before macOS 26 the toolbar is an opaque band over the columns
+    private var legacyToolbar: Bool {
+        if #available(macOS 26, *) { return false }
+        return true
+    }
+
     /// Room for the title in the chapter column's part of the toolbar. With
     /// the sidebar hidden, the window controls and sidebar toggle come first.
     private var titleWidth: CGFloat {
@@ -60,8 +66,10 @@ struct ContentView: View {
             ReaderView(model: model, chat: chat, focus: $focus)
         }
         // As in NetNewsWire, each column runs the full height of the window
-        // and the toolbar sits over it; each column's items are in its segment
-        .toolbarBackground(.hidden, for: .windowToolbar)
+        // and the toolbar sits over it. macOS 26 lays toolbars out that way
+        // itself, with Liquid Glass controls and a blur where content scrolls
+        // under them; earlier systems need the toolbar's background hidden.
+        .toolbarBackground(legacyToolbar ? .hidden : .automatic, for: .windowToolbar)
         // Start in the reader, so ↑/↓ move between verses right away
         .defaultFocus($focus, .reader)
         .onAppear {
@@ -97,45 +105,37 @@ struct ContentView: View {
         // the reader's items at the trailing edge of the toolbar.
         .navigationTitle("")
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                ColumnTitle(title: model.columnTitle, subtitle: model.columnSubtitle, maxWidth: titleWidth)
+            if #available(macOS 26, *) {
+                // A title, not a control: no glass behind it
+                ToolbarItem(placement: .navigation) {
+                    ColumnTitle(title: model.columnTitle, subtitle: model.columnSubtitle, maxWidth: titleWidth)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .navigation) {
+                    ColumnTitle(title: model.columnTitle, subtitle: model.columnSubtitle, maxWidth: titleWidth)
+                }
             }
         }
         .toolbar {
+            // Back and Forward, through the reading history, are in the Go menu
+            // (⌘[ and ⌘]); a second pair of arrows here would only confuse
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    model.goBack()
+                    model.goToPreviousChapter()
                 } label: {
-                    Label("Back", systemImage: "chevron.backward")
+                    Label("Previous Chapter", systemImage: "chevron.left")
                 }
-                .help("Go back")
-                .disabled(!model.canGoBack)
+                .help("Previous chapter")
+                .disabled(model.previousChapter == nil)
 
                 Button {
-                    model.goForward()
+                    model.goToNextChapter()
                 } label: {
-                    Label("Forward", systemImage: "chevron.forward")
+                    Label("Next Chapter", systemImage: "chevron.right")
                 }
-                .help("Go forward")
-                .disabled(!model.canGoForward)
-
-                ControlGroup {
-                    Button {
-                        model.goToPreviousChapter()
-                    } label: {
-                        Label("Previous Chapter", systemImage: "chevron.left")
-                    }
-                    .help("Previous chapter")
-                    .disabled(model.previousChapter == nil)
-
-                    Button {
-                        model.goToNextChapter()
-                    } label: {
-                        Label("Next Chapter", systemImage: "chevron.right")
-                    }
-                    .help("Next chapter")
-                    .disabled(model.nextChapter == nil)
-                }
+                .help("Next chapter")
+                .disabled(model.nextChapter == nil)
 
                 Toggle(isOn: $model.showInspector) {
                     Label("Study Tools", systemImage: "sidebar.trailing")
