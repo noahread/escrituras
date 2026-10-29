@@ -89,17 +89,6 @@ final class ColumnFocus {
         }
     }
 
-    /// Put the keyboard in the toolbar's search field (⌘F), as SwiftUI's
-    /// `searchable` offers no way to do so on macOS 14
-    func focusSearchField() {
-        guard let window = anchors.values.first?.view?.window else { return }
-        let field = window.toolbar?.items.lazy.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }.first
-            ?? window.contentView?.superview?.firstDescendant(NSSearchField.self)
-        if let field {
-            window.makeFirstResponder(field)
-        }
-    }
-
     /// Returns true when the key was used to change columns
     private func handle(_ event: NSEvent, model: AppModel) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])

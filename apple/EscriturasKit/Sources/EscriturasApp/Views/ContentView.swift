@@ -10,6 +10,7 @@ struct ContentView: View {
     @FocusState private var focus: Pane?
     @State private var columns = ColumnFocus()
     @State private var chapterColumnWidth: CGFloat = 0
+    @State private var searchPresented = false
 
     /// Below this width, showing the inspector hides the sidebar (as Notes and
     /// Mail do) so the reader keeps a comfortable width
@@ -78,7 +79,10 @@ struct ContentView: View {
             columns.readerIsFocused = { focus.wrappedValue == .reader }
             columns.startWatchingKeys(model: model)
         }
-        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search the scriptures")
+        // Search sits at the top of the sidebar, as in Music, Podcasts and
+        // Maps. In the toolbar it would always come last, over the inspector,
+        // and push the inspector's own tabs aside when it opened.
+        .searchable(text: $model.searchText, isPresented: $searchPresented, placement: .sidebar, prompt: "Search the scriptures")
         .onChange(of: model.searchText) {
             model.scheduleSearch()
         }
@@ -91,7 +95,15 @@ struct ContentView: View {
             }
         }
         .onChange(of: model.searchFocusRequests) {
-            columns.focusSearchField()
+            // The field is in the sidebar: bring it back if hidden, then
+            // focus it through SwiftUI, which otherwise returns the focus to
+            // the reader as the sidebar settles
+            columnVisibility = .all
+            searchPresented = false
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(50))
+                searchPresented = true
+            }
         }
         .inspector(isPresented: $model.showInspector) {
             InspectorView(model: model, chat: chat)

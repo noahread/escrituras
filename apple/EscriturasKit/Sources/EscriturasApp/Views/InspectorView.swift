@@ -7,22 +7,25 @@ struct InspectorView: View {
     let chat: ChatModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Inspector", selection: $model.inspectorTab) {
-                Text("Study").tag(AppModel.InspectorTab.study)
-                Text("Ask").tag(AppModel.InspectorTab.ask)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(10)
-
-            Divider()
-
+        Group {
             switch model.inspectorTab {
             case .study:
                 StudyPanelView(model: model)
             case .ask:
                 ChatView(model: model, chat: chat)
+            }
+        }
+        // As in Xcode and Pages, the inspector's tabs sit in its own part of
+        // the toolbar. That also gives the toolbar a divider at the
+        // inspector's edge, so the window's items stay over the reader.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Inspector", selection: $model.inspectorTab) {
+                    Text("Study").tag(AppModel.InspectorTab.study)
+                    Text("Ask").tag(AppModel.InspectorTab.ask)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
         }
     }
@@ -74,6 +77,8 @@ struct StudyPanelView: View {
                 }
             }
         }
+        // On the inspector's own background, as Pages lists its settings
+        .scrollContentBackground(.hidden)
     }
 }
 
